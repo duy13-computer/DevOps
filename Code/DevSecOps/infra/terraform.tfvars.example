@@ -1,4 +1,4 @@
-# Copy to terraform.tfvars only for an isolated, disposable lab account.
-aws_region          = "us-east-1"
-bucket_prefix       = "devsecops-seeded-lab-demo-"
+aws_region = "us-east-1"
+management_cidr = "10.20.0.0/16"
+bucket_prefix = "devsecops-seeded-lab-demo-"
 ecr_repository_name = "devsecops-seeded-lab"

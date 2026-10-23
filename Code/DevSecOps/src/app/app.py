@@ -13,8 +13,8 @@ app = Flask(__name__)
 class FakeDatabase:
     """A tiny stand-in that records SQL without connecting to a real database."""
 
-    def execute(self, query):
-        return {"query": query, "rows": [{"id": 1, "username": "demo"}]}
+    def execute(self, query, params=None):
+        return {"query": query, "params": params or (), "rows": [{"id": 1, "username": "demo"}]}
 
 
 db = FakeDatabase()
@@ -36,26 +36,24 @@ def health():
 @app.route("/evaluate", methods=["GET"])
 def evaluate():
     expression = request.args.get("expression", "1 + 1")
-    # SEEDED-SAST-01: User-controlled input is evaluated as Python code.
-    result = eval(expression)
-    return jsonify(result=result)
+    # Keep the submitted expression as data; never execute user input.
+    return jsonify(expression=expression, evaluation="disabled")
 
 
 @app.route("/users", methods=["GET"])
 def get_user():
     user_id = request.args.get("id", "1")
-    # SEEDED-SAST-02: User input is interpolated into SQL with string formatting.
-    query = "SELECT id, username FROM users WHERE id = '%s'" % user_id
-    return jsonify(db.execute(query))
+    query = "SELECT id, username FROM users WHERE id = ?"
+    return jsonify(db.execute(query, (user_id,)))
 
 
 @app.route("/run", methods=["GET"])
 def run_command():
     message = request.args.get("message", "hello")
-    # SEEDED-SAST-03: User input reaches a shell command.
+    # Pass user data as an argument; do not invoke a shell.
     result = subprocess.run(
-        "printf '%s\\n' " + message,
-        shell=True,
+        ["printf", "%s\\n", message],
+        shell=False,
         capture_output=True,
         text=True,
         timeout=3,

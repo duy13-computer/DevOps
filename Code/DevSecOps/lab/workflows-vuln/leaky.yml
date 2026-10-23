@@ -8,5 +8,5 @@ jobs:
     steps:
       - name: Display only the seeded marker
         env:
-          DEMO_GITHUB_TOKEN: ghp_000000000000000000000000000000000000 # SEEDED-SECRET-04
+          DEMO_GITHUB_TOKEN: ${{ secrets.DEMO_GITHUB_TOKEN }}
         run: echo "A non-functional demo token is present for secret scanning."

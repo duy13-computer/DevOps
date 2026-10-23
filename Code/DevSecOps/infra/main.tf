@@ -22,25 +22,25 @@ resource "aws_vpc" "lab" {
 
 resource "aws_security_group" "lab" {
   name        = "devsecops-seeded-lab"
-  description = "Intentionally insecure scanner fixture; do not apply."
+  description = "Restricted management access for the isolated lab."
   vpc_id      = aws_vpc.lab.id
 
-  # SEEDED-IAC-01: SSH is exposed to every IPv4 address.
+  # Management access is limited to the configured private CIDR.
   ingress {
-    description = "SEEDED-IAC-01: public SSH"
+    description = "SSH from the approved management network"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [var.management_cidr]
   }
 
-  # SEEDED-IAC-02: RDP is exposed to every IPv4 address.
+  # RDP is limited to the configured private CIDR.
   ingress {
-    description = "SEEDED-IAC-02: public RDP"
+    description = "RDP from the approved management network"
     from_port   = 3389
     to_port     = 3389
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = [var.management_cidr]
   }
 
   egress {
@@ -51,11 +51,18 @@ resource "aws_security_group" "lab" {
   }
 }
 
-# SEEDED-IAC-03: no server-side encryption configuration is enabled.
-# SEEDED-IAC-04: a public-read ACL is attached and public access is permitted.
 resource "aws_s3_bucket" "lab" {
   bucket_prefix = var.bucket_prefix
   force_destroy = true
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "lab" {
+  bucket = aws_s3_bucket.lab.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
 }
 
 resource "aws_s3_bucket_ownership_controls" "lab" {
@@ -67,20 +74,12 @@ resource "aws_s3_bucket_ownership_controls" "lab" {
 
 resource "aws_s3_bucket_public_access_block" "lab" {
   bucket                  = aws_s3_bucket.lab.id
-  block_public_acls       = false
-  block_public_policy     = false
-  ignore_public_acls      = false
-  restrict_public_buckets = false
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
 }
 
-resource "aws_s3_bucket_acl" "lab" {
-  depends_on = [
-    aws_s3_bucket_ownership_controls.lab,
-    aws_s3_bucket_public_access_block.lab,
-  ]
-  bucket = aws_s3_bucket.lab.id
-  acl    = "public-read"
-}
 
 resource "aws_iam_role" "lab" {
   name = "devsecops-seeded-lab"
@@ -96,17 +95,23 @@ resource "aws_iam_role" "lab" {
   })
 }
 
-# SEEDED-IAC-05: AdministratorAccess is broader than the lab requires.
-resource "aws_iam_role_policy_attachment" "lab_admin" {
-  role       = aws_iam_role.lab.name
-  policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
+resource "aws_iam_role_policy" "lab_runtime" {
+  name = "devsecops-lab-runtime"
+  role = aws_iam_role.lab.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["logs:CreateLogStream", "logs:PutLogEvents"]
+      Resource = "arn:aws:logs:${var.aws_region}:*:log-group:/devsecops/lab:*"
+    }]
+  })
 }
 
-# SEEDED-IAC-06: scanning is disabled and mutable tags are permitted.
 resource "aws_ecr_repository" "lab" {
   name                 = var.ecr_repository_name
-  image_tag_mutability = "MUTABLE"
+  image_tag_mutability = "IMMUTABLE"
   image_scanning_configuration {
-    scan_on_push = false
+    scan_on_push = true
   }
 }

@@ -4,6 +4,12 @@ variable "aws_region" {
   default     = "us-east-1"
 }
 
+variable "management_cidr" {
+  description = "Private CIDR permitted to reach the lab management ports."
+  type        = string
+  default     = "10.20.0.0/16"
+}
+
 variable "bucket_prefix" {
   description = "Globally unique prefix for the deliberately weak demo bucket."
   type        = string
