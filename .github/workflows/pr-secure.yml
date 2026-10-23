@@ -76,7 +76,7 @@ jobs:
               gitleaks dir Code/DevSecOps --config Code/DevSecOps/.gitleaks.toml --report-format json --report-path Code/DevSecOps/tests/results/raw/gitleaks.json --exit-code 0
               ;;
             trivy-fs)
-              trivy fs --scanners vuln,misconfig,secret --format json --output Code/DevSecOps/tests/results/raw/trivy-fs.json --exit-code 0 --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL Code/DevSecOps
+              trivy fs --scanners vuln,misconfig,secret --skip-dirs Code/DevSecOps/ground_truth/patches --format json --output Code/DevSecOps/tests/results/raw/trivy-fs.json --exit-code 0 --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL Code/DevSecOps
               ;;
             checkov)
               status=0

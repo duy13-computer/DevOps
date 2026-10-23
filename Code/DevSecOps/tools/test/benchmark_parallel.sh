@@ -73,6 +73,7 @@ run_scanner() {
       ;;
     trivy-fs)
       trivy fs --scanners vuln,misconfig,secret --format json \
+        --skip-dirs "$PROJECT_ROOT/ground_truth/patches" \
         --output "$REPORT_DIR/trivy-fs.json" --exit-code 0 "$PROJECT_ROOT"
       ;;
     checkov)

@@ -51,13 +51,13 @@ jobs:
       - name: Prepare reports and build fixed image
         run: |
           mkdir -p Code/DevSecOps/tests/results/raw Code/DevSecOps/reports
-          docker build --file Code/DevSecOps/lab/docker/Dockerfile.fixed --tag "$LOCAL_IMAGE" Code/DevSecOps
+          docker build --pull --file Code/DevSecOps/lab/docker/Dockerfile.fixed --tag "$LOCAL_IMAGE" Code/DevSecOps
 
       - name: Scan source, IaC, secrets, and release image
         run: |
           semgrep scan --metrics=off --config Code/DevSecOps/rules/semgrep --json --output Code/DevSecOps/tests/results/raw/semgrep.json Code/DevSecOps/src
           gitleaks dir Code/DevSecOps --config Code/DevSecOps/.gitleaks.toml --report-format json --report-path Code/DevSecOps/tests/results/raw/gitleaks.json --exit-code 0
-          trivy fs --scanners vuln,misconfig,secret --format json --output Code/DevSecOps/tests/results/raw/trivy-fs.json --exit-code 0 --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL Code/DevSecOps
+          trivy fs --scanners vuln,misconfig,secret --skip-dirs Code/DevSecOps/ground_truth/patches --format json --output Code/DevSecOps/tests/results/raw/trivy-fs.json --exit-code 0 --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL Code/DevSecOps
           trivy image --format json --output Code/DevSecOps/tests/results/raw/trivy-image.json --exit-code 0 --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL "$LOCAL_IMAGE"
           checkov -d Code/DevSecOps/infra -o json --output-file-path Code/DevSecOps/tests/results/raw --soft-fail
           mv Code/DevSecOps/tests/results/raw/results_json.json Code/DevSecOps/tests/results/raw/checkov.json

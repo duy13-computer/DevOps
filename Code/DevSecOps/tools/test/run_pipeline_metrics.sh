@@ -51,11 +51,11 @@ run_checkov() {
   return "$status"
 }
 
-run_step docker_build docker build -f "$ROOT/lab/docker/Dockerfile" -t "$IMAGE" "$ROOT"
+run_step docker_build docker build --pull -f "$ROOT/lab/docker/Dockerfile" -t "$IMAGE" "$ROOT"
 run_step exception_validation python3 "$ROOT/tools/check_exceptions.py"
 run_step semgrep semgrep scan --config "$ROOT/rules/semgrep" --json --output "$RAW/semgrep.json" "$ROOT/src"
 run_step gitleaks gitleaks dir "$ROOT" --config "$ROOT/.gitleaks.toml" --report-format json --report-path "$RAW/gitleaks.json" --exit-code 0
-run_step trivy_fs trivy fs --scanners vuln,misconfig,secret --format json --exit-code 0 --output "$RAW/trivy-fs.json" --ignorefile "$ROOT/.trivyignore" "$ROOT"
+run_step trivy_fs trivy fs --scanners vuln,misconfig,secret --skip-dirs "$ROOT/ground_truth/patches" --format json --exit-code 0 --output "$RAW/trivy-fs.json" --ignorefile "$ROOT/.trivyignore" "$ROOT"
 run_step trivy_image trivy image --format json --exit-code 0 --output "$RAW/trivy-image.json" --ignorefile "$ROOT/.trivyignore" "$IMAGE"
 run_step checkov run_checkov
 run_step syft syft "$IMAGE" -o cyclonedx-json="$RAW/sbom.cyclonedx.json"
