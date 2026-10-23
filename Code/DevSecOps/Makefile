@@ -34,7 +34,7 @@ bootstrap:
 	"$(VENV_PYTHON)" -m pip install --disable-pip-version-check semgrep==1.179.0 checkov==3.3.30
 
 check-tools:
-	@for tool in docker gitleaks trivy conftest syft cosign parallel; do \
+	@for tool in docker gitleaks trivy conftest syft parallel; do \
 	  command -v "$$tool" >/dev/null 2>&1 || { echo "Missing required CLI: $$tool" >&2; exit 1; }; \
 	done
 	@"$(VENV_PYTHON)" -c 'import sys; print("Python", sys.version.split()[0])'

@@ -12,16 +12,15 @@ Pull request
   └─ pr-secure ─ Semgrep + Gitleaks + Trivy FS + Checkov
                   └─ chuẩn hóa finding ─ g0 ghi nhận ─ g1 chặn HIGH/CRITICAL
 
-Nhánh phát hành
-  └─ build image ─ Trivy image ─ Syft SBOM ─ Cosign sign/attest/verify
-                                               └─ g2 kiểm tra trước khi đẩy ECR
+Nhánh main
+  └─ build image cục bộ ─ Trivy image ─ Syft SBOM ─ g1/g2 gates ─ báo cáo artifact
 ```
 
 Semgrep kiểm tra mã Python; Gitleaks tìm secret; Trivy kiểm tra dependency, cấu hình và image; Checkov kiểm tra Terraform. Conftest áp dụng gate trên report đã chuẩn hóa. Các workflow nằm trong `.github/workflows/`; hướng dẫn chi tiết ở [Code/DevSecOps/README.md](Code/DevSecOps/README.md).
 
 ## Chuẩn bị
 
-Chạy các lệnh trong Linux hoặc WSL với GNU Make và Bash. Cần Python 3.12+, Docker Engine/Desktop đang chạy, Gitleaks, Trivy, Conftest, Syft và GNU Parallel. Cosign cần cho luồng phát hành. `make bootstrap` tạo `.venv` và cài Semgrep/Checkov theo phiên bản workflow; các CLI còn lại được cài ở cấp hệ thống.
+Chạy các lệnh trong Linux hoặc WSL với GNU Make và Bash. Cần Python 3.12+, Docker Engine/Desktop đang chạy, Gitleaks, Trivy, Conftest, Syft và GNU Parallel. `make bootstrap` tạo `.venv` và cài Semgrep/Checkov theo phiên bản workflow; các CLI còn lại được cài ở cấp hệ thống.
 
 ```bash
 make -C Code/DevSecOps bootstrap
@@ -63,4 +62,4 @@ make -C Code/DevSecOps benchmark PHASE=after-fix RUNS=3
 - `Code/DevSecOps/tests/results/metrics/`: thời gian và detection rate.
 - `Code/DevSecOps/ground_truth/`: seed và patch phục vụ thí nghiệm.
 
-Không thêm credentials thật vào repo. Chỉ dùng chuỗi giả được ghi rõ cho fixture; AWS trong CI dùng OIDC với quyền tối thiểu.
+Không thêm credentials thật vào repo. Chỉ dùng chuỗi giả được ghi rõ cho fixture. Workflow hiện chỉ quét, áp dụng gate và lưu bằng chứng; không cần tài khoản AWS.

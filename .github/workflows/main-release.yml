@@ -1,25 +1,20 @@
-name: Main release security
+name: Main branch security scan
 
 on:
   push:
     branches: [main, master]
   workflow_dispatch:
 
-env:
-  # Keep this aligned with infra/variables.tf; override with a repository variable if needed.
-  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
-
 concurrency:
-  group: main-release-${{ github.ref }}
+  group: main-security-scan-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
-  release:
-    name: Gate, publish, sign, and attest
+  security-scan:
+    name: Scan and enforce security gates
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -37,7 +32,7 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check semgrep==1.179.0 checkov==3.3.30
 
-      - name: Install pinned release scanners
+      - name: Install pinned scanners and SBOM tooling
         run: |
           curl -fsSL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz -o "$RUNNER_TEMP/gitleaks.tar.gz"
           tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
@@ -83,71 +78,11 @@ jobs:
       - name: Enforce g2 IaC, image, and secret release gate
         run: conftest test Code/DevSecOps/reports/summary.json --policy Code/DevSecOps/policy/g2 --policy Code/DevSecOps/rules/conftest --data Code/DevSecOps/policy/exceptions.json
 
-      - name: Configure AWS credentials with OIDC
-        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5.1.1
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-          role-session-name: GitHubActions-${{ github.run_id }}
-          role-duration-seconds: 900
-
-      - name: Push gated image to ECR
-        env:
-          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
-        run: |
-          ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
-          ECR_REGISTRY="$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
-          aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
-          docker tag "$LOCAL_IMAGE" "$ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA"
-          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA"
-          DIGEST="$(aws ecr describe-images --repository-name "$ECR_REPOSITORY" --image-ids imageTag="$GITHUB_SHA" --query 'imageDetails[0].imageDigest' --output text)"
-          echo "PUBLISHED_IMAGE=$ECR_REGISTRY/$ECR_REPOSITORY@$DIGEST" >> "$GITHUB_ENV"
-
-      - name: Install pinned Cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-        with:
-          cosign-release: v3.0.6
-
-      - name: Sign image and attach SBOM and provenance
-        env:
-          PUBLISHED_IMAGE: ${{ env.PUBLISHED_IMAGE }}
-        run: |
-          cat > Code/DevSecOps/reports/provenance.json <<EOF
-          {
-            "buildDefinition": {
-              "buildType": "https://actions.github.io/buildtypes/workflow/v1",
-              "externalParameters": {
-                "workflow": {
-                  "repository": "https://github.com/$GITHUB_REPOSITORY",
-                  "ref": "$GITHUB_REF"
-                }
-              },
-              "internalParameters": {
-                "github": {"run_id": "$GITHUB_RUN_ID"}
-              },
-              "resolvedDependencies": [
-                {
-                  "uri": "git+https://github.com/$GITHUB_REPOSITORY@$GITHUB_SHA",
-                  "digest": {"gitCommit": "$GITHUB_SHA"}
-                }
-              ]
-            },
-            "runDetails": {
-              "builder": {
-                "id": "https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-              }
-            }
-          }
-          EOF
-          cosign sign --yes "$PUBLISHED_IMAGE"
-          cosign attest --yes --type cyclonedx --predicate Code/DevSecOps/tests/results/raw/sbom.cyclonedx.json "$PUBLISHED_IMAGE"
-          cosign attest --yes --type slsaprovenance --predicate Code/DevSecOps/reports/provenance.json "$PUBLISHED_IMAGE"
-
-      - name: Upload release evidence
+      - name: Upload scan evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: main-release-evidence
+          name: main-security-scan-evidence
           path: |
             Code/DevSecOps/tests/results/raw/
             Code/DevSecOps/reports/

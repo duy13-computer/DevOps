@@ -4,11 +4,9 @@ Repository mẫu cho đề tài **Xây dựng đường ống DevSecOps phát hi
 
 ## Cấu trúc và luồng gate
 
-Các workflow ở thư mục `.github/workflows/` tại gốc repository: `pr-fast.yml` chạy scan nhanh ở chế độ cảnh báo; `pr-secure.yml` chạy Semgrep, Gitleaks, Trivy filesystem và Checkov song song rồi áp dụng gate g1; `main-release.yml` build image đã harden, scan image và IaC, áp dụng g1/g2, sau đó đẩy image lên ECR và ký/attest bằng Cosign. Workflow hợp nhất cũ được giữ làm bản tham khảo tại `.github/workflows/security-pipeline.yml.disabled`.
+Các workflow ở thư mục `.github/workflows/` tại gốc repository: `pr-fast.yml` chạy scan nhanh ở chế độ cảnh báo; `pr-secure.yml` chạy Semgrep, Gitleaks, Trivy filesystem và Checkov song song rồi áp dụng gate g1; `main-release.yml` build image đã harden cục bộ, scan image và IaC, áp dụng g1/g2, rồi lưu báo cáo và SBOM thành artifact. Workflow này không cần AWS và không đẩy image ra registry. Workflow hợp nhất cũ được giữ làm bản tham khảo tại `.github/workflows/security-pipeline.yml.disabled`.
 
 `tools/test/summarize.py` chuẩn hóa JSON của Semgrep, Gitleaks, Trivy và Checkov thành `reports/summary.json`, đồng thời tạo bản tóm tắt PR và danh sách ngoại lệ được áp dụng:
-
-Để chạy workflow phát hành, cấu hình GitHub Secrets `AWS_ROLE_ARN` và `ECR_REPOSITORY`. Workflow mặc định dùng region `us-east-1`, đồng bộ với `infra/variables.tf`; nếu ECR nằm ở region khác, tạo GitHub Actions Repository Variable tên `AWS_REGION` với region đó. IAM role cần tin cậy GitHub OIDC cho repository/branch này và chỉ có quyền ECR cần thiết; workflow không dùng AWS access key tĩnh.
 
 | Gate | Hành vi | Quy tắc |
 |---|---|---|
@@ -20,7 +18,7 @@ Gate chạy trên toàn bộ phát hiện chuẩn hóa. Vì vậy g2 là mức n
 
 ## Cài đặt và chạy local
 
-Chạy trong Linux hoặc WSL với GNU Make, Bash, Python 3.12+, Docker daemon, Gitleaks, Trivy, Conftest, Syft, Cosign và GNU Parallel. `make bootstrap` tạo `.venv` và cài các phiên bản Semgrep/Checkov đang pin trong workflow; các CLI khác cần có trên `PATH`.
+Chạy trong Linux hoặc WSL với GNU Make, Bash, Python 3.12+, Docker daemon, Gitleaks, Trivy, Conftest, Syft và GNU Parallel. `make bootstrap` tạo `.venv` và cài các phiên bản Semgrep/Checkov đang pin trong workflow; các CLI khác cần có trên `PATH`.
 
 Từ repository root:
 
@@ -62,7 +60,7 @@ Target này kiểm tra cả bốn patch trước rồi mới áp dụng. Chỉ c
 
 So sánh kết quả chuẩn hóa với ground truth bằng `Code/DevSecOps/tools/test/verify_ground_truth.py`; xem quy ước match và các seed chỉ dùng làm đối chứng tại `Code/DevSecOps/ground_truth/README.md`.
 
-Patch secret thay giá trị hardcode bằng biến môi trường; patch Docker nâng Python, cập nhật các dependency đã gieo lỗi và chạy UID không đặc quyền; patch Terraform giới hạn cổng quản trị theo `management_cidr` (mặc định ví dụ `10.20.0.0/16`), bật mã hóa S3 và ECR scan-on-push, đồng thời thay quyền AdministratorAccess bằng quyền ghi log giới hạn. Sau đó chạy lại pipeline. Nếu muốn áp dụng trạng thái sửa đầy đủ thay vì patch, dùng `Dockerfile.fixed`, `requirements-fixed.txt` và `main.fixed.tf.example` làm tham khảo. Không đưa credentials thật vào biến CI; dùng GitHub Secrets hoặc OIDC với quyền tối thiểu.
+Patch secret thay giá trị hardcode bằng biến môi trường; patch Docker nâng Python, cập nhật các dependency đã gieo lỗi và chạy UID không đặc quyền; patch Terraform giới hạn cổng quản trị theo `management_cidr` (mặc định ví dụ `10.20.0.0/16`), bật mã hóa S3 và ECR scan-on-push, đồng thời thay quyền AdministratorAccess bằng quyền ghi log giới hạn. Sau đó chạy lại pipeline. Nếu muốn áp dụng trạng thái sửa đầy đủ thay vì patch, dùng `Dockerfile.fixed`, `requirements-fixed.txt` và `main.fixed.tf.example` làm tham khảo. Không đưa credentials thật vào biến CI.
 
 ## Ngoại lệ có thời hạn
 
