@@ -1,0 +1,83 @@
+name: PR fast security
+
+on:
+  pull_request:
+
+concurrency:
+  group: pr-fast-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  fast:
+    name: Fast warning-only scans
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Cache Semgrep
+        uses: actions/cache@a7833574556fa59680c1b7cb190c1735db73ebf0 # v5.0.0
+        with:
+          path: ~/.cache/semgrep
+          key: ${{ runner.os }}-semgrep-1.179.0-${{ hashFiles('Code/DevSecOps/rules/semgrep/**') }}
+          restore-keys: ${{ runner.os }}-semgrep-1.179.0-
+
+      - name: Install pinned scanners
+        run: |
+          python -m pip install --disable-pip-version-check semgrep==1.179.0
+          curl -fsSL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz -o "$RUNNER_TEMP/gitleaks.tar.gz"
+          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
+          sudo install "$RUNNER_TEMP/gitleaks" /usr/local/bin/gitleaks
+
+      - name: Prepare reports
+        run: mkdir -p Code/DevSecOps/tests/results/raw
+
+      - name: Semgrep SAST report
+        id: semgrep
+        continue-on-error: true
+        run: semgrep scan --metrics=off --config Code/DevSecOps/rules/semgrep --json --output Code/DevSecOps/tests/results/raw/semgrep.json Code/DevSecOps/src
+
+      - name: Record Semgrep status
+        if: always()
+        env:
+          OUTCOME: ${{ steps.semgrep.outcome }}
+        run: printf '{"scanner":"semgrep","outcome":"%s"}\n' "$OUTCOME" > Code/DevSecOps/tests/results/raw/status-semgrep.json
+
+      - name: Gitleaks secret report
+        id: gitleaks
+        continue-on-error: true
+        run: gitleaks dir Code/DevSecOps --config Code/DevSecOps/.gitleaks.toml --report-format json --report-path Code/DevSecOps/tests/results/raw/gitleaks.json --exit-code 0
+
+      - name: Record Gitleaks status
+        if: always()
+        env:
+          OUTCOME: ${{ steps.gitleaks.outcome }}
+        run: printf '{"scanner":"gitleaks","outcome":"%s"}\n' "$OUTCOME" > Code/DevSecOps/tests/results/raw/status-gitleaks.json
+
+      - name: Write PR summary
+        if: always()
+        continue-on-error: true
+        run: |
+          python Code/DevSecOps/tools/test/summarize.py --results Code/DevSecOps/tests/results/raw --output-dir Code/DevSecOps/reports --require semgrep,gitleaks --run-id "$GITHUB_RUN_ID" --commit-sha "$GITHUB_SHA"
+          cat Code/DevSecOps/reports/pr-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload fast scan reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pr-fast-reports
+          path: |
+            Code/DevSecOps/tests/results/raw/
+            Code/DevSecOps/reports/
+          if-no-files-found: warn
+          retention-days: 14

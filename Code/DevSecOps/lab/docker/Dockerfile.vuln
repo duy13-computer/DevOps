@@ -1,0 +1,16 @@
+# Intentionally weak build fixture for isolated scanner demonstrations.
+FROM python:3.6-slim
+WORKDIR /app
+# SEEDED-DOCKER-01: EOL base image.
+# SEEDED-DOCKER-02: image process runs as root.
+USER root
+# SEEDED-DOCKER-04: installs tools without --no-install-recommends.
+RUN apt-get update && apt-get install -y curl wget git vim
+COPY src/app/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+# SEEDED-DOCKER-05: ADD sends the entire build context into the image.
+ADD . /app
+# SEEDED-DOCKER-03: fake marker file is copied into the image layer.
+COPY lab/docker/dummy-secret.txt /app/dummy-secret.txt
+EXPOSE 5000
+CMD ["python", "src/app/app.py"]

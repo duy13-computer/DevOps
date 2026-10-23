@@ -1,0 +1,162 @@
+name: PR secure gate
+
+on:
+  pull_request:
+
+concurrency:
+  group: pr-secure-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: Scan / ${{ matrix.scanner }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        scanner: [semgrep, gitleaks, trivy-fs, checkov]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Set up Python
+        if: matrix.scanner == 'semgrep' || matrix.scanner == 'checkov'
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Cache scanner databases
+        uses: actions/cache@a7833574556fa59680c1b7cb190c1735db73ebf0 # v5.0.0
+        with:
+          path: |
+            ~/.cache/semgrep
+            ~/.cache/trivy
+          key: ${{ runner.os }}-${{ matrix.scanner }}-scan-cache-v1-${{ hashFiles('Code/DevSecOps/rules/semgrep/**', 'Code/DevSecOps/src/app/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.scanner }}-scan-cache-v1-
+
+      - name: Install pinned scanner
+        run: |
+          case "${{ matrix.scanner }}" in
+            semgrep)
+              python -m pip install --disable-pip-version-check semgrep==1.179.0
+              ;;
+            checkov)
+              python -m pip install --disable-pip-version-check checkov==3.3.30
+              ;;
+            gitleaks)
+              curl -fsSL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz -o "$RUNNER_TEMP/gitleaks.tar.gz"
+              tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
+              sudo install "$RUNNER_TEMP/gitleaks" /usr/local/bin/gitleaks
+              ;;
+            trivy-fs)
+              curl -fsSL https://github.com/aquasecurity/trivy/releases/download/v0.74.0/trivy_0.74.0_Linux-64bit.tar.gz -o "$RUNNER_TEMP/trivy.tar.gz"
+              tar -xzf "$RUNNER_TEMP/trivy.tar.gz" -C "$RUNNER_TEMP" trivy
+              sudo install "$RUNNER_TEMP/trivy" /usr/local/bin/trivy
+              ;;
+          esac
+
+      - name: Prepare reports
+        run: mkdir -p Code/DevSecOps/tests/results/raw
+
+      - name: Run scanner
+        id: scan
+        continue-on-error: true
+        run: |
+          case "${{ matrix.scanner }}" in
+            semgrep)
+              semgrep scan --metrics=off --config Code/DevSecOps/rules/semgrep --json --output Code/DevSecOps/tests/results/raw/semgrep.json Code/DevSecOps/src
+              ;;
+            gitleaks)
+              gitleaks dir Code/DevSecOps --config Code/DevSecOps/.gitleaks.toml --report-format json --report-path Code/DevSecOps/tests/results/raw/gitleaks.json --exit-code 0
+              ;;
+            trivy-fs)
+              trivy fs --scanners vuln,misconfig,secret --format json --output Code/DevSecOps/tests/results/raw/trivy-fs.json --exit-code 0 --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL Code/DevSecOps
+              ;;
+            checkov)
+              checkov -d Code/DevSecOps/infra -o json --output-file-path Code/DevSecOps/tests/results/raw/checkov.json --soft-fail
+              ;;
+          esac
+
+      - name: Record scanner status
+        if: always()
+        env:
+          SCANNER: ${{ matrix.scanner }}
+          OUTCOME: ${{ steps.scan.outcome }}
+        run: printf '{"scanner":"%s","outcome":"%s"}\n' "$SCANNER" "$OUTCOME" > "Code/DevSecOps/tests/results/raw/status-$SCANNER.json"
+
+      - name: Upload scanner report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: scan-${{ matrix.scanner }}
+          path: Code/DevSecOps/tests/results/raw/
+          if-no-files-found: error
+          retention-days: 14
+
+  gate:
+    name: Normalize reports and evaluate g1
+    needs: scan
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Download parallel scanner reports
+        if: always()
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: scan-*
+          merge-multiple: true
+          path: Code/DevSecOps/tests/results/raw/
+
+      - name: Normalize and publish summary
+        id: summary
+        if: always()
+        continue-on-error: true
+        run: |
+          python Code/DevSecOps/tools/test/summarize.py --results Code/DevSecOps/tests/results/raw --output-dir Code/DevSecOps/reports --exceptions Code/DevSecOps/policy/exceptions.json --require semgrep,gitleaks,trivy-fs,checkov --run-id "$GITHUB_RUN_ID" --commit-sha "$GITHUB_SHA"
+          cat Code/DevSecOps/reports/pr-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install Conftest and evaluate g0 warning
+        if: always()
+        continue-on-error: true
+        run: |
+          curl -fsSL https://github.com/open-policy-agent/conftest/releases/download/v0.64.0/conftest_0.64.0_Linux_x86_64.tar.gz -o "$RUNNER_TEMP/conftest.tar.gz"
+          tar -xzf "$RUNNER_TEMP/conftest.tar.gz" -C "$RUNNER_TEMP" conftest
+          sudo install "$RUNNER_TEMP/conftest" /usr/local/bin/conftest
+          if [ ! -f Code/DevSecOps/policy/exceptions.json ]; then printf '{"exceptions":[]}\n' > Code/DevSecOps/policy/exceptions.json; fi
+          conftest test Code/DevSecOps/reports/summary.json --policy Code/DevSecOps/policy/g0
+
+      - name: Enforce g1 high and critical gate
+        if: always()
+        run: conftest test Code/DevSecOps/reports/summary.json --policy Code/DevSecOps/policy/g1 --policy Code/DevSecOps/rules/conftest --data Code/DevSecOps/policy/exceptions.json
+
+      - name: Fail closed when scanners or aggregation failed
+        if: always()
+        env:
+          SUMMARY_OUTCOME: ${{ steps.summary.outcome }}
+        run: test "$SUMMARY_OUTCOME" = success
+
+      - name: Upload normalized evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pr-secure-evidence
+          path: |
+            Code/DevSecOps/tests/results/raw/
+            Code/DevSecOps/reports/
+          if-no-files-found: warn
+          retention-days: 30

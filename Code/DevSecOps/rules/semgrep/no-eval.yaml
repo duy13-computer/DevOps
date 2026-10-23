@@ -1,0 +1,16 @@
+rules:
+  - id: python.lang.security.audit.eval
+    message: Avoid eval() on input because it can execute arbitrary Python code.
+    severity: ERROR
+    languages:
+      - python
+    pattern: eval($EXPR)
+    metadata:
+      severity: HIGH
+      cwe: CWE-95
+      references:
+        - https://cwe.mitre.org/data/definitions/95.html
+        - https://owasp.org/www-community/attacks/Code_Injection
+      category: security
+      technology:
+        - python

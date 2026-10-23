@@ -1,0 +1,15 @@
+rules:
+  - id: python.requests-ssrf
+    message: Untrusted URL passed to requests.get may create SSRF.
+    severity: WARNING
+    languages: [python]
+    mode: taint
+    pattern-sources:
+      - pattern: request.args.get(...)
+    pattern-sinks:
+      - pattern: requests.get($URL, ...)
+    metadata:
+      category: security
+      technology: [python, flask]
+      confidence: MEDIUM
+      references: [https://owasp.org/www-community/attacks/Server_Side_Request_Forgery]

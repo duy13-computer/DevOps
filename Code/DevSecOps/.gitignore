@@ -1,0 +1,7 @@
+__pycache__/
+.venv/
+*.py[cod]
+tests/results/raw/*.json
+!tests/results/raw/.gitkeep
+tests/results/metrics/*.json
+!tests/results/metrics/.gitkeep

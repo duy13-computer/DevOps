@@ -1,0 +1,25 @@
+terraform {
+  required_version = ">= 1.5.0"
+  required_providers {
+    aws = { source = "hashicorp/aws", version = "~> 5.0" }
+  }
+}
+provider "aws" { region = var.aws_region }
+variable "aws_region" { type = string, default = "us-east-1" }
+resource "aws_security_group" "lab" {
+  name = "devsecops-lab"
+  ingress {
+    description = "SSH restricted to the private network."
+    from_port = 22
+    to_port = 22
+    protocol = "tcp"
+    cidr_blocks = ["10.0.0.0/16"]
+  }
+}
+resource "aws_iam_role" "lab" {
+  name = "devsecops-lab"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{ Effect = "Allow", Principal = { Service = "ec2.amazonaws.com" }, Action = "sts:AssumeRole" }]
+  })
+}

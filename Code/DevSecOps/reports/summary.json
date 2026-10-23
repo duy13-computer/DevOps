@@ -1,0 +1,12 @@
+{
+  "run_id": "local",
+  "commit_sha": "HEAD\nunknown",
+  "generated_at": "2026-10-23T14:29:46.794681+00:00",
+  "findings": [],
+  "scan_errors": [
+    "Required scanner report is missing: semgrep.json",
+    "Required scanner report is missing: gitleaks.json",
+    "Required scanner report is missing: trivy-fs.json",
+    "Required scanner report is missing: checkov.json"
+  ]
+}

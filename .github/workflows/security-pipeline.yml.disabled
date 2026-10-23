@@ -1,0 +1,205 @@
+name: DevSecOps security pipeline
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+
+jobs:
+  security:
+    name: Scan, evaluate gates, and publish evidence
+    runs-on: ubuntu-latest
+    env:
+      PROJECT: Code/DevSecOps
+      RESULTS: Code/DevSecOps/tests/results/raw
+      IMAGE: devsecops-demo:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python helpers
+        run: python -m pip install --upgrade pip semgrep
+
+      - name: Prepare result directories
+        run: mkdir -p "$RESULTS" Code/DevSecOps/tests/results/metrics Code/DevSecOps/tests/results/triage && rm -f "$RESULTS"/*.json
+
+      - name: Validate time-bounded exceptions
+        run: python "$PROJECT/tools/check_exceptions.py"
+
+      - name: Build sample image
+        run: docker build -f "$PROJECT/lab/docker/Dockerfile" -t "$IMAGE" "$PROJECT"
+
+      - name: Semgrep SAST JSON
+        id: semgrep
+        continue-on-error: true
+        run: semgrep scan --config Code/DevSecOps/rules/semgrep --json --output "$RESULTS/semgrep.json" Code/DevSecOps/src
+
+      - name: Semgrep SAST SARIF
+        if: always()
+        continue-on-error: true
+        run: semgrep scan --config Code/DevSecOps/rules/semgrep --sarif --output "$RESULTS/semgrep.sarif" Code/DevSecOps/src
+
+      - name: Gitleaks secret scan
+        id: gitleaks
+        continue-on-error: true
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: Code/DevSecOps/.gitleaks.toml
+
+      - name: Save Gitleaks JSON
+        id: gitleaks_json
+        continue-on-error: true
+        if: always()
+        run: gitleaks detect --no-git --source . --config "$PROJECT/.gitleaks.toml" --report-format json --report-path "$RESULTS/gitleaks.json" --exit-code 0
+
+      - name: Trivy filesystem scan
+        id: trivy_fs
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: Code/DevSecOps
+          format: json
+          output: trivy-fs.json
+          exit-code: '0'
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+
+      - name: Trivy image scan
+        id: trivy_image
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.IMAGE }}
+          format: json
+          output: trivy-image.json
+          exit-code: '0'
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+
+      - name: Copy Trivy reports
+        if: always()
+        run: |
+          test ! -f trivy-fs.json || cp trivy-fs.json "$RESULTS/trivy-fs.json"
+          test ! -f trivy-image.json || cp trivy-image.json "$RESULTS/trivy-image.json"
+
+      - name: Checkov Terraform scan
+        id: checkov
+        continue-on-error: true
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: Code/DevSecOps/infra
+          output_format: json
+          output_file_path: console,checkov.json
+          quiet: true
+
+      - name: Save Checkov report
+        if: always()
+        run: test ! -f checkov.json || cp checkov.json "$RESULTS/checkov.json"
+
+      - name: Syft CycloneDX SBOM
+        id: syft
+        continue-on-error: true
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.IMAGE }}
+          format: cyclonedx-json
+          output-file: Code/DevSecOps/tests/results/raw/sbom.cyclonedx.json
+          upload-artifact: false
+
+      - name: Build normalized findings for policy evaluation
+        if: always()
+        run: python "$PROJECT/tools/normalize_results.py" --results "$RESULTS" --output "$RESULTS/findings.json"
+
+      - name: Install Conftest
+        if: always()
+        uses: supplypike/setup-conftest@v1
+        with:
+          conftest-version: 0.56.0
+
+      - name: Evaluate g0 warnings
+        if: always()
+        continue-on-error: true
+        run: conftest test "$RESULTS/findings.json" --policy "$PROJECT/policy/g0" --all-namespaces
+
+      - name: Evaluate g1 blocking policy
+        if: always()
+        run: conftest test "$RESULTS/findings.json" --policy "$PROJECT/policy/g1" --all-namespaces
+
+      - name: Evaluate g2 blocking policy
+        if: always()
+        run: conftest test "$RESULTS/findings.json" --policy "$PROJECT/policy/g2" --all-namespaces
+
+      - name: Fail closed if a scanner did not complete
+        if: always()
+        env:
+          SEMGREP_OUTCOME: ${{ steps.semgrep.outcome }}
+          GITLEAKS_OUTCOME: ${{ steps.gitleaks_json.outcome }}
+          TRIVY_FS_OUTCOME: ${{ steps.trivy_fs.outcome }}
+          TRIVY_IMAGE_OUTCOME: ${{ steps.trivy_image.outcome }}
+          CHECKOV_OUTCOME: ${{ steps.checkov.outcome }}
+          SYFT_OUTCOME: ${{ steps.syft.outcome }}
+        run: |
+          for result in "$SEMGREP_OUTCOME" "$GITLEAKS_OUTCOME" "$TRIVY_FS_OUTCOME" "$TRIVY_IMAGE_OUTCOME" "$CHECKOV_OUTCOME" "$SYFT_OUTCOME"; do
+            if [ "$result" != success ]; then echo "Required scanner failed or was skipped: $result"; exit 1; fi
+          done
+
+      - name: Upload SARIF to GitHub Security
+        if: always() && hashFiles('Code/DevSecOps/tests/results/raw/semgrep.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: Code/DevSecOps/tests/results/raw/semgrep.sarif
+          category: semgrep
+
+      - name: Upload scan evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: devsecops-scan-results
+          path: |
+            ${{ env.RESULTS }}/
+            Code/DevSecOps/tests/results/metrics/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: PR summary comment
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        env:
+          RESULT_FILE: Code/DevSecOps/tests/results/raw/findings.json
+          G0_OUTCOME: ${{ steps.semgrep.outcome }}
+          GITLEAKS_OUTCOME: ${{ steps.gitleaks.outcome }}
+          TRIVY_OUTCOME: ${{ steps.trivy_image.outcome }}
+          CHECKOV_OUTCOME: ${{ steps.checkov.outcome }}
+        with:
+          script: |
+            const fs = require('fs');
+            const p = process.env.RESULT_FILE;
+            let f = { findings: [], scan_errors: [] };
+            if (fs.existsSync(p)) f = JSON.parse(fs.readFileSync(p, 'utf8'));
+            const count = (s) => f.findings.filter(x => x.severity === s).length;
+            const body = [
+              '## DevSecOps scan summary',
+              `- Findings: **${f.findings.length}** (Critical ${count('CRITICAL')}, High ${count('HIGH')}, Medium ${count('MEDIUM')}, Low ${count('LOW')})`,
+              `- Secrets: **${f.findings.filter(x => x.category === 'secret').length}**`,
+              `- Scan errors: **${(f.scan_errors || []).length}**`,
+              `- Scanner status: Semgrep ${process.env.G0_OUTCOME}; Gitleaks ${process.env.GITLEAKS_OUTCOME}; Trivy ${process.env.TRIVY_OUTCOME}; Checkov ${process.env.CHECKOV_OUTCOME}.`,
+              `- Gate levels: g0 warns on Medium/Low; g1 blocks High/Critical; g2 blocks any secret and Critical IaC.`,
+              '- Full JSON, SBOM, and tool reports are in the `devsecops-scan-results` workflow artifact.'
+            ].join('\n');
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.rest.issues.listComments({ owner, repo, issue_number });
+            const old = comments.data.find(c => c.user.type === 'Bot' && c.body.startsWith('## DevSecOps scan summary'));
+            if (old) await github.rest.issues.updateComment({ owner, repo, comment_id: old.id, body });
+            else await github.rest.issues.createComment({ owner, repo, issue_number, body });

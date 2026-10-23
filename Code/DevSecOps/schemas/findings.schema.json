@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Normalized DevSecOps scan findings",
+  "type": "object",
+  "required": ["findings", "scan_errors"],
+  "properties": {
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["tool", "severity", "category", "title", "file", "rule_id"],
+        "properties": {
+          "tool": {"type": "string"},
+          "severity": {"enum": ["UNKNOWN", "LOW", "MEDIUM", "HIGH", "CRITICAL"]},
+          "category": {"enum": ["sast", "secret", "sca", "iac", "image", "config"]},
+          "title": {"type": "string"},
+          "file": {"type": "string"},
+          "rule_id": {"type": "string"}
+        },
+        "additionalProperties": true
+      }
+    },
+    "scan_errors": {"type": "array", "items": {"type": "string"}}
+  }
+}

@@ -1,0 +1,12 @@
+# SEEDED-SCA-01
+requests==2.19.0
+# SEEDED-SCA-02
+PyYAML==3.13
+# SEEDED-SCA-03
+Flask==1.0.0
+# SEEDED-SCA-04
+Jinja2==2.10
+# Pins retain compatibility with the deliberately old Flask lab runtime.
+# SEEDED-SCA-05
+Werkzeug==0.14.1
+MarkupSafe==1.1.1

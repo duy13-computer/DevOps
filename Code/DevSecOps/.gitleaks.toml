@@ -1,0 +1,34 @@
+[extend]
+useDefault = true
+
+[[rules]]
+id = "seeded-config-aws-key"
+description = "Non-functional AWS example key in the seeded lab."
+regex = '''AKIAIOSFODNN7EXAMPLE'''
+keywords = ["AKIAIOS"]
+path = '''(^|/)config_dummy\.py$'''
+
+[[rules]]
+id = "seeded-config-github-token"
+description = "Non-functional GitHub token in the seeded lab."
+regex = '''ghp_0{36}'''
+keywords = ["ghp_"]
+path = '''(^|/)config_dummy\.py$'''
+
+[[rules]]
+id = "seeded-config-rsa-key"
+description = "Invalid private-key marker in the seeded lab."
+regex = '''-----BEGIN RSA PRIVATE KEY-----'''
+keywords = ["BEGIN RSA PRIVATE KEY"]
+path = '''(^|/)config_dummy\.py$'''
+
+[[rules]]
+id = "seeded-workflow-github-token"
+description = "Non-functional GitHub token in the isolated workflow fixture."
+regex = '''ghp_0{36}'''
+keywords = ["ghp_"]
+path = '''(^|/)leaky\.yml$'''
+
+[allowlist]
+description = "Keep remediation diffs from being rescanned as live secrets."
+paths = ['''(^|/)ground_truth/patches/''', '''(^|/)\.gitleaks\.toml$''']

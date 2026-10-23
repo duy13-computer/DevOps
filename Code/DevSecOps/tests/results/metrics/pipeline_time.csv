@@ -1,0 +1,9 @@
+phase,run_id,commit_sha,n_runs,step,wall_time_s,cpu_time_s,exit_codes
+baseline,baseline-20261023T141558276744Z,unknown,3,checkov,0.042092,0.003333,127;127;127
+baseline,baseline-20261023T141558276744Z,unknown,3,gitleaks,0.047867,0.006667,127;127;127
+baseline,baseline-20261023T141558276744Z,unknown,3,semgrep,0.043099,0.000000,127;127;127
+baseline,baseline-20261023T141558276744Z,unknown,3,trivy-fs,0.043927,0.000000,127;127;127
+after-fix,after-fix-20261023T142043908839Z,unknown,3,checkov,0.035730,0.003333,127;127;127
+after-fix,after-fix-20261023T142043908839Z,unknown,3,gitleaks,0.054020,0.006667,127;127;127
+after-fix,after-fix-20261023T142043908839Z,unknown,3,semgrep,0.036477,0.003333,127;127;127
+after-fix,after-fix-20261023T142043908839Z,unknown,3,trivy-fs,0.037934,0.000000,127;127;127

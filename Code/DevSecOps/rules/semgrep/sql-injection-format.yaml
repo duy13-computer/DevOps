@@ -1,0 +1,22 @@
+rules:
+  - id: python.flask.security.sql-injection-string-format
+    message: Untrusted request data reaches a database execute call; use parameterized queries.
+    severity: ERROR
+    languages:
+      - python
+    mode: taint
+    pattern-sources:
+      - pattern: request.args.get(...)
+    pattern-sinks:
+      - pattern: $DB.execute($QUERY)
+      - pattern: $CURSOR.execute($QUERY)
+    metadata:
+      severity: HIGH
+      cwe: CWE-89
+      references:
+        - https://cwe.mitre.org/data/definitions/89.html
+        - https://owasp.org/www-community/attacks/SQL_Injection
+      category: security
+      technology:
+        - python
+        - flask

@@ -1,0 +1,19 @@
+rules:
+  - id: python.lang.security.audit.subprocess-shell-true
+    message: Avoid shell=True when command data can come from an untrusted source.
+    severity: ERROR
+    languages:
+      - python
+    pattern-either:
+      - pattern: subprocess.run(..., shell=True, ...)
+      - pattern: subprocess.Popen(..., shell=True, ...)
+      - pattern: subprocess.call(..., shell=True, ...)
+    metadata:
+      severity: HIGH
+      cwe: CWE-78
+      references:
+        - https://cwe.mitre.org/data/definitions/78.html
+        - https://owasp.org/www-community/attacks/Command_Injection
+      category: security
+      technology:
+        - python

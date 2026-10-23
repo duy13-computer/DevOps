@@ -1,0 +1,151 @@
+name: Main release security
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: main-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  release:
+    name: Gate, publish, sign, and attest
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      LOCAL_IMAGE: devsecops-lab:${{ github.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned Python scanners
+        run: |
+          python -m pip install --disable-pip-version-check semgrep==1.179.0 checkov==3.3.30
+
+      - name: Install pinned release scanners
+        run: |
+          curl -fsSL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz -o "$RUNNER_TEMP/gitleaks.tar.gz"
+          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
+          sudo install "$RUNNER_TEMP/gitleaks" /usr/local/bin/gitleaks
+          curl -fsSL https://github.com/aquasecurity/trivy/releases/download/v0.74.0/trivy_0.74.0_Linux-64bit.tar.gz -o "$RUNNER_TEMP/trivy.tar.gz"
+          tar -xzf "$RUNNER_TEMP/trivy.tar.gz" -C "$RUNNER_TEMP" trivy
+          sudo install "$RUNNER_TEMP/trivy" /usr/local/bin/trivy
+          curl -fsSL https://github.com/anchore/syft/releases/download/v1.55.0/syft_1.55.0_linux_amd64.tar.gz -o "$RUNNER_TEMP/syft.tar.gz"
+          tar -xzf "$RUNNER_TEMP/syft.tar.gz" -C "$RUNNER_TEMP" syft
+          sudo install "$RUNNER_TEMP/syft" /usr/local/bin/syft
+          curl -fsSL https://github.com/open-policy-agent/conftest/releases/download/v0.64.0/conftest_0.64.0_Linux_x86_64.tar.gz -o "$RUNNER_TEMP/conftest.tar.gz"
+          tar -xzf "$RUNNER_TEMP/conftest.tar.gz" -C "$RUNNER_TEMP" conftest
+          sudo install "$RUNNER_TEMP/conftest" /usr/local/bin/conftest
+
+      - name: Prepare reports and build fixed image
+        run: |
+          mkdir -p Code/DevSecOps/tests/results/raw Code/DevSecOps/reports
+          docker build --file Code/DevSecOps/lab/docker/Dockerfile.fixed --tag "$LOCAL_IMAGE" Code/DevSecOps
+
+      - name: Scan source, IaC, secrets, and release image
+        run: |
+          semgrep scan --metrics=off --config Code/DevSecOps/rules/semgrep --json --output Code/DevSecOps/tests/results/raw/semgrep.json Code/DevSecOps/src
+          gitleaks dir Code/DevSecOps --config Code/DevSecOps/.gitleaks.toml --report-format json --report-path Code/DevSecOps/tests/results/raw/gitleaks.json --exit-code 0
+          trivy fs --scanners vuln,misconfig,secret --format json --output Code/DevSecOps/tests/results/raw/trivy-fs.json --exit-code 0 --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL Code/DevSecOps
+          trivy image --format json --output Code/DevSecOps/tests/results/raw/trivy-image.json --exit-code 0 --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL "$LOCAL_IMAGE"
+          checkov -d Code/DevSecOps/infra -o json --output-file-path Code/DevSecOps/tests/results/raw/checkov.json --soft-fail
+          syft "$LOCAL_IMAGE" -o cyclonedx-json=Code/DevSecOps/tests/results/raw/sbom.cyclonedx.json
+
+      - name: Normalize and fail closed on scan errors
+        run: |
+          python Code/DevSecOps/tools/test/summarize.py --results Code/DevSecOps/tests/results/raw --output-dir Code/DevSecOps/reports --exceptions Code/DevSecOps/policy/exceptions.json --require semgrep,gitleaks,trivy-fs,trivy-image,checkov --run-id "$GITHUB_RUN_ID" --commit-sha "$GITHUB_SHA"
+          cat Code/DevSecOps/reports/pr-summary.md >> "$GITHUB_STEP_SUMMARY"
+          if [ ! -f Code/DevSecOps/policy/exceptions.json ]; then printf '{"exceptions":[]}\n' > Code/DevSecOps/policy/exceptions.json; fi
+
+      - name: Evaluate g0 warning policy
+        continue-on-error: true
+        run: conftest test Code/DevSecOps/reports/summary.json --policy Code/DevSecOps/policy/g0
+
+      - name: Enforce g1 high and critical gate
+        run: conftest test Code/DevSecOps/reports/summary.json --policy Code/DevSecOps/policy/g1 --policy Code/DevSecOps/rules/conftest --data Code/DevSecOps/policy/exceptions.json
+
+      - name: Enforce g2 IaC, image, and secret release gate
+        run: conftest test Code/DevSecOps/reports/summary.json --policy Code/DevSecOps/policy/g2 --policy Code/DevSecOps/rules/conftest --data Code/DevSecOps/policy/exceptions.json
+
+      - name: Configure AWS credentials with OIDC
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5.1.1
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          role-session-name: GitHubActions-${{ github.run_id }}
+          role-duration-seconds: 900
+
+      - name: Push gated image to ECR
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+        run: |
+          ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+          ECR_REGISTRY="$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
+          aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+          docker tag "$LOCAL_IMAGE" "$ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA"
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA"
+          DIGEST="$(aws ecr describe-images --repository-name "$ECR_REPOSITORY" --image-ids imageTag="$GITHUB_SHA" --query 'imageDetails[0].imageDigest' --output text)"
+          echo "PUBLISHED_IMAGE=$ECR_REGISTRY/$ECR_REPOSITORY@$DIGEST" >> "$GITHUB_ENV"
+
+      - name: Install pinned Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.0.6
+
+      - name: Sign image and attach SBOM and provenance
+        env:
+          PUBLISHED_IMAGE: ${{ env.PUBLISHED_IMAGE }}
+        run: |
+          cat > Code/DevSecOps/reports/provenance.json <<EOF
+          {
+            "buildDefinition": {
+              "buildType": "https://actions.github.io/buildtypes/workflow/v1",
+              "externalParameters": {
+                "workflow": {
+                  "repository": "https://github.com/$GITHUB_REPOSITORY",
+                  "ref": "$GITHUB_REF"
+                }
+              },
+              "internalParameters": {
+                "github": {"run_id": "$GITHUB_RUN_ID"}
+              },
+              "resolvedDependencies": [
+                {
+                  "uri": "git+https://github.com/$GITHUB_REPOSITORY@$GITHUB_SHA",
+                  "digest": {"gitCommit": "$GITHUB_SHA"}
+                }
+              ]
+            },
+            "runDetails": {
+              "builder": {
+                "id": "https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+              }
+            }
+          }
+          EOF
+          cosign sign --yes "$PUBLISHED_IMAGE"
+          cosign attest --yes --type cyclonedx --predicate Code/DevSecOps/tests/results/raw/sbom.cyclonedx.json "$PUBLISHED_IMAGE"
+          cosign attest --yes --type slsaprovenance --predicate Code/DevSecOps/reports/provenance.json "$PUBLISHED_IMAGE"
+
+      - name: Upload release evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: main-release-evidence
+          path: |
+            Code/DevSecOps/tests/results/raw/
+            Code/DevSecOps/reports/
+          if-no-files-found: warn
+          retention-days: 90

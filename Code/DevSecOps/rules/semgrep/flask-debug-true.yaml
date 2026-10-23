@@ -1,0 +1,17 @@
+rules:
+  - id: python.flask.security.debug-enabled
+    message: Flask debug mode must be disabled outside local development.
+    severity: WARNING
+    languages:
+      - python
+    pattern: $APP.run(..., debug=True, ...)
+    metadata:
+      severity: MEDIUM
+      cwe: CWE-489
+      references:
+        - https://cwe.mitre.org/data/definitions/489.html
+        - https://flask.palletsprojects.com/en/stable/debugging/
+      category: security
+      technology:
+        - python
+        - flask

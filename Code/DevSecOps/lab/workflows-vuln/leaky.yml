@@ -1,0 +1,12 @@
+# Isolated vulnerable-workflow fixture. This file is outside .github/workflows and is never executed by CI.
+name: intentionally-leaky-lab-fixture
+on:
+  workflow_dispatch:
+jobs:
+  demonstration:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Display only the seeded marker
+        env:
+          DEMO_GITHUB_TOKEN: ghp_000000000000000000000000000000000000 # SEEDED-SECRET-04
+        run: echo "A non-functional demo token is present for secret scanning."
