@@ -5,6 +5,10 @@ on:
     branches: [main, master]
   workflow_dispatch:
 
+env:
+  # Keep this aligned with infra/variables.tf; override with a repository variable if needed.
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+
 concurrency:
   group: main-release-${{ github.ref }}
   cancel-in-progress: false
@@ -83,13 +87,12 @@ jobs:
         uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5.1.1
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: ${{ env.AWS_REGION }}
           role-session-name: GitHubActions-${{ github.run_id }}
           role-duration-seconds: 900
 
       - name: Push gated image to ECR
         env:
-          AWS_REGION: ${{ secrets.AWS_REGION }}
           ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
         run: |
           ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"

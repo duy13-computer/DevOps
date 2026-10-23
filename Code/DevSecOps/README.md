@@ -8,7 +8,7 @@ Các workflow ở thư mục `.github/workflows/` tại gốc repository: `pr-fa
 
 `tools/test/summarize.py` chuẩn hóa JSON của Semgrep, Gitleaks, Trivy và Checkov thành `reports/summary.json`, đồng thời tạo bản tóm tắt PR và danh sách ngoại lệ được áp dụng:
 
-Để chạy workflow phát hành, cấu hình GitHub Secrets `AWS_ROLE_ARN`, `AWS_REGION` và `ECR_REPOSITORY`. IAM role cần tin cậy GitHub OIDC cho repository/branch này và chỉ có quyền ECR cần thiết; workflow không dùng AWS access key tĩnh.
+Để chạy workflow phát hành, cấu hình GitHub Secrets `AWS_ROLE_ARN` và `ECR_REPOSITORY`. Workflow mặc định dùng region `us-east-1`, đồng bộ với `infra/variables.tf`; nếu ECR nằm ở region khác, tạo GitHub Actions Repository Variable tên `AWS_REGION` với region đó. IAM role cần tin cậy GitHub OIDC cho repository/branch này và chỉ có quyền ECR cần thiết; workflow không dùng AWS access key tĩnh.
 
 | Gate | Hành vi | Quy tắc |
 |---|---|---|
