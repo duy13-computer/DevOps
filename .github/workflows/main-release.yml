@@ -28,6 +28,9 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Validate exception policy
+        run: python Code/DevSecOps/tools/check_exceptions.py Code/DevSecOps/policy/exceptions.json
+
       - name: Install pinned Python scanners
         run: |
           python -m pip install --disable-pip-version-check semgrep==1.179.0 checkov==3.3.30
@@ -47,16 +50,16 @@ jobs:
           tar -xzf "$RUNNER_TEMP/conftest.tar.gz" -C "$RUNNER_TEMP" conftest
           sudo install "$RUNNER_TEMP/conftest" /usr/local/bin/conftest
 
-      - name: Prepare reports and build fixed image
+      - name: Prepare reports and build local fixed image
         run: |
           mkdir -p Code/DevSecOps/tests/results/raw Code/DevSecOps/reports
           docker build --pull --file Code/DevSecOps/lab/docker/Dockerfile.fixed --tag "$LOCAL_IMAGE" Code/DevSecOps
 
-      - name: Scan source, IaC, secrets, and release image
+      - name: Scan source, IaC, secrets, and local image
         run: |
           semgrep scan --metrics=off --config Code/DevSecOps/rules/semgrep --json --output Code/DevSecOps/tests/results/raw/semgrep.json Code/DevSecOps/src
           gitleaks dir Code/DevSecOps --config Code/DevSecOps/.gitleaks.toml --report-format json --report-path Code/DevSecOps/tests/results/raw/gitleaks.json --exit-code 0
-          trivy fs --scanners vuln,misconfig,secret --skip-dirs Code/DevSecOps/ground_truth/patches --format json --output Code/DevSecOps/tests/results/raw/trivy-fs.json --exit-code 0 --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL Code/DevSecOps
+          trivy fs --scanners vuln,misconfig,secret --skip-dirs Code/DevSecOps/ground_truth/patches --skip-dirs Code/DevSecOps/tests/results --skip-dirs Code/DevSecOps/reports --skip-dirs Code/DevSecOps/.venv --skip-dirs Code/DevSecOps/__pycache__ --skip-files Code/DevSecOps/lab/docker/Dockerfile.vuln --format json --output Code/DevSecOps/tests/results/raw/trivy-fs.json --exit-code 0 --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL Code/DevSecOps
           trivy image --format json --output Code/DevSecOps/tests/results/raw/trivy-image.json --exit-code 0 --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL "$LOCAL_IMAGE"
           checkov -d Code/DevSecOps/infra -o json --output-file-path Code/DevSecOps/tests/results/raw --soft-fail
           mv Code/DevSecOps/tests/results/raw/results_json.json Code/DevSecOps/tests/results/raw/checkov.json
@@ -66,7 +69,6 @@ jobs:
         run: |
           python Code/DevSecOps/tools/test/summarize.py --results Code/DevSecOps/tests/results/raw --output-dir Code/DevSecOps/reports --exceptions Code/DevSecOps/policy/exceptions.json --require semgrep,gitleaks,trivy-fs,trivy-image,checkov --run-id "$GITHUB_RUN_ID" --commit-sha "$GITHUB_SHA"
           cat Code/DevSecOps/reports/pr-summary.md >> "$GITHUB_STEP_SUMMARY"
-          if [ ! -f Code/DevSecOps/policy/exceptions.json ]; then printf '{"exceptions":[]}\n' > Code/DevSecOps/policy/exceptions.json; fi
 
       - name: Evaluate g0 warning policy
         continue-on-error: true
@@ -75,10 +77,10 @@ jobs:
       - name: Enforce g1 high and critical gate
         run: conftest test Code/DevSecOps/reports/summary.json --policy Code/DevSecOps/policy/g1 --policy Code/DevSecOps/rules/conftest --data Code/DevSecOps/policy/exceptions.json
 
-      - name: Enforce g2 IaC, image, and secret release gate
+      - name: Enforce g2 IaC, image, and secret gate
         run: conftest test Code/DevSecOps/reports/summary.json --policy Code/DevSecOps/policy/g2 --policy Code/DevSecOps/rules/conftest --data Code/DevSecOps/policy/exceptions.json
 
-      - name: Upload scan evidence
+      - name: Upload security scan evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

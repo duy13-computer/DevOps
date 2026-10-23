@@ -1,23 +1,22 @@
 # Ground truth
 
-`seeds.yaml` is the source of truth for 23 intentionally seeded cases. Each case records its tool, rule or CVE, repository-relative path, source line, and severity. The `id` is the seed marker used in the source fixture. The verification script matches the normalized report on stable finding fields; line numbers are included for review and can change after edits.
+`seeds.yaml` khai báo 23 trường hợp gieo cài/đối chứng. Mỗi trường hợp có loại finding, công cụ/rule hoặc CVE, đường dẫn, severity và cờ `measured`. Có 22 trường hợp đo được theo manifest. File dummy không phải secret là đối chứng âm; nó không tính vào recall cố định. Fixture Python 3.6 cũ không được build trong workflow thực nghiệm.
 
-The manifest marks 21 cases as measurable by the current workflows. The Python 3.6 end-of-life base image is documented but not measured because the release workflow builds the fixed image. The dummy file copied by the vulnerable Dockerfile is a clean non-secret control and must not be counted as a detection.
+Ma trận seed, scanner dự kiến, cách khắc phục và kết quả mong đợi ở [seed-remediation-matrix.md](seed-remediation-matrix.md). Đây là kỳ vọng theo thiết kế, không phải số liệu quan sát.
 
-From the repository root, apply each patch to reproduce the remediation state:
+## Tái tạo baseline và đo after-fix
 
-```bash
-git apply Code/DevSecOps/ground_truth/patches/fix_sast.patch
-git apply Code/DevSecOps/ground_truth/patches/fix_secret.patch
-git apply Code/DevSecOps/ground_truth/patches/fix_docker.patch
-git apply Code/DevSecOps/ground_truth/patches/fix_infra.patch
-```
+Checkout hiện tại đã có patch remediation. `tools/test/measure_pipeline.py --baseline` sao chép repository vào thư mục tạm và dùng `git apply --reverse` trên bốn patch để khôi phục source, secret fixture, Dockerfile và Terraform baseline. Workspace ban đầu không bị thay đổi. `--after-fix` quét checkout đang mở.
 
-Compare one normalized report:
+Trên GitHub Actions, chạy thủ công workflow `Ground truth before-after experiment` một lần với phase `baseline` và một lần với `after-fix`. Mỗi lần chạy tối thiểu ba lần quét. Artifact giữ raw reports, summary chuẩn hóa, detection rate, thời gian, Trivy image report, SBOM CycloneDX và kết quả gate. Baseline phải bị g1 chặn; after-fix phải vượt qua g1/g2. Không có scanner/report thành công thì lượt đo được đánh dấu invalid.
+
+Có thể gọi script từ repository root sau khi cài đủ scanner:
 
 ```bash
-python Code/DevSecOps/tools/test/verify_ground_truth.py --baseline
-python Code/DevSecOps/tools/test/verify_ground_truth.py --after-fix
+python Code/DevSecOps/tools/test/measure_pipeline.py --baseline --runs 3 --include-image
+python Code/DevSecOps/tools/test/measure_pipeline.py --after-fix --runs 3 --include-image
 ```
 
-The default input resolves to `Code/DevSecOps/reports/summary.json` from either the repository root or the project directory. Pass multiple `--findings` files to average metrics over repeated scans. Rows append to `tests/results/metrics/detection_rate.csv`; use `--overwrite` to start a new experiment. Precision is relative to the measured seed set, so unlisted findings are unmatched findings, not necessarily scanner false positives.
+## Cách hiểu metric
+
+`verify_ground_truth.py` ghép finding với seed theo tool, category, rule/CVE, package/version và đường dẫn. Với baseline, `detection_rate.csv` ghi TP/FP/FN, precision, recall và F1. Với after-fix, file ghi seed còn sót và unmatched findings; seed đã loại bỏ không bị tính thành false negative. Unmatched finding chưa được xác nhận là false positive bởi chuyên gia. Một CVE image requests cố định được chấm; các CVE image khác vẫn cần triage. Không gọi unmatched rate là “false positive rate” nếu chưa triage thủ công.

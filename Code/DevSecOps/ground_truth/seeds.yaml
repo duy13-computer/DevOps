@@ -160,15 +160,17 @@
 - id: SEEDED-DOCKER-01
   tool: trivy-image
   category: image
-  file: Code/DevSecOps/lab/docker/Dockerfile.vuln
+  cve: CVE-2018-18074
+  package: requests
+  version: 2.19.0
   line: 2
   severity: HIGH
-  measured: false
+  measured: true
 - id: SEEDED-DOCKER-02
   tool: trivy-fs
   category: config
   rule_id: AVD-DS-0002
-  file: Code/DevSecOps/lab/docker/Dockerfile.vuln
+  file: Code/DevSecOps/lab/docker/Dockerfile
   line: 6
   severity: HIGH
   measured: true
@@ -183,7 +185,7 @@
   tool: trivy-fs
   category: config
   rule_id: DS-0029
-  file: Code/DevSecOps/lab/docker/Dockerfile.vuln
+  file: Code/DevSecOps/lab/docker/Dockerfile
   line: 8
   severity: HIGH
   measured: true
@@ -191,7 +193,7 @@
   tool: trivy-fs
   category: config
   rule_id: AVD-DS-0005
-  file: Code/DevSecOps/lab/docker/Dockerfile.vuln
+  file: Code/DevSecOps/lab/docker/Dockerfile
   line: 12
   severity: LOW
   measured: true

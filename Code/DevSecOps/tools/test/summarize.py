@@ -26,15 +26,33 @@ def apply_exceptions(findings: list[dict[str, Any]], exceptions: Any) -> list[st
     notes: list[str] = []
     for exception in entries:
         if not isinstance(exception, dict):
+            notes.append("- Invalid exception entry: each entry must be an object.")
             continue
         scope = exception.get("scope") or {}
         if not isinstance(scope, dict) or not scope:
             notes.append(f"- Invalid scope: {exception.get('id', '<missing id>')} (scope must be a non-empty object).")
             continue
+        required_scope = {"tool", "category", "severity", "rule_id", "file"}
+        if set(scope) != required_scope or any(
+            not isinstance(value, str) or not value.strip() or value.strip() in {"*", "all", "ANY"}
+            for value in scope.values()
+        ):
+            notes.append(
+                f"- Invalid scope: {exception.get('id', '<missing id>')} (requires exact tool/category/severity/rule_id/file values)."
+            )
+            continue
         matches = [finding for finding in findings
                    if all(finding.get(key) == expected for key, expected in scope.items())]
         if not matches:
             notes.append(f"- No matching finding: {exception.get('id', '<missing id>')}.")
+            continue
+        protected = [finding for finding in matches
+                     if finding.get("category") == "secret"
+                     or (finding.get("category") == "iac" and finding.get("severity") == "CRITICAL")]
+        if protected:
+            notes.append(
+                f"- Rejected {exception.get('id', '<missing id>')}: secrets and CRITICAL IaC findings cannot be excepted."
+            )
             continue
         try:
             expires = datetime.fromisoformat(str(exception.get("expires", "")).replace("Z", "+00:00"))

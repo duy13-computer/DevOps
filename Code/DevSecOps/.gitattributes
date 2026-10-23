@@ -1,1 +1,8 @@
 *.sh text eol=lf
+*.py text eol=lf
+*.rego text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.patch text eol=lf
+Makefile text eol=lf

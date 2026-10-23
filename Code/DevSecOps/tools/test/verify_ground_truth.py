@@ -15,8 +15,9 @@ from typing import Any
 
 
 CSV_FIELDS = [
-    "phase", "run_id", "commit_sha", "n_runs", "tool", "tp", "fp", "fn",
+    "phase", "metric_kind", "run_id", "commit_sha", "n_runs", "tool", "tp", "fp", "fn",
     "precision", "recall", "f1", "detected_seed_ids", "missed_seed_ids",
+    "remaining_seed_ids", "residual_seed_count", "unmatched_findings",
 ]
 
 
@@ -78,8 +79,14 @@ def matches(seed: dict[str, Any], finding: dict[str, Any]) -> bool:
         return False
     expected_file = norm_path(seed.get("file"))
     actual_file = norm_path(finding.get("file"))
-    if expected_file and not (actual_file == expected_file or actual_file.endswith("/" + expected_file)):
-        return False
+    if expected_file:
+        candidates = {expected_file}
+        project_prefix = "Code/DevSecOps/"
+        if expected_file.startswith(project_prefix):
+            candidates.add(expected_file[len(project_prefix):])
+        if not any(actual_file == candidate or actual_file.endswith("/" + candidate)
+                   for candidate in candidates):
+            return False
     if seed.get("package"):
         if str(finding.get("package", "")).casefold() != str(seed["package"]).casefold():
             return False
@@ -93,7 +100,6 @@ def matches(seed: dict[str, Any], finding: dict[str, Any]) -> bool:
 def score_run(findings: list[dict[str, Any]], seeds: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     measured = [seed for seed in seeds if seed.get("measured", True)]
     tools = {str(seed["tool"]) for seed in measured}
-    tools.update(str(item.get("tool", "unknown")) for item in findings)
     scores: dict[str, dict[str, Any]] = {}
     for tool in sorted(tools):
         expected = [seed for seed in measured if seed.get("tool") == tool]
@@ -139,6 +145,7 @@ def main() -> int:
     if len(paths) < 1:
         parser.error("at least one findings report is required")
     seeds = load_seeds(args.seeds)
+    phase_name = "after-fix" if args.after_fix else "baseline"
     run_scores: list[dict[str, dict[str, Any]]] = []
     report_ids: list[str] = []
     commit_ids: list[str] = []
@@ -152,7 +159,6 @@ def main() -> int:
             commit_ids.append(str(data["commit_sha"]))
         scan_errors.extend(str(error) for error in data.get("scan_errors", []))
 
-    phase_name = "after-fix" if args.after_fix else "baseline"
     run_id = args.run_id or (",".join(dict.fromkeys(report_ids)) if report_ids else datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"))
     commit_sha = args.commit_sha or os.getenv("GITHUB_SHA") or (commit_ids[0] if len(set(commit_ids)) == 1 and commit_ids else "mixed-or-unknown")
     all_tools = sorted({tool for scores in run_scores for tool in scores})
@@ -161,32 +167,49 @@ def main() -> int:
         samples = [scores.get(tool, {"tp": 0, "fp": 0, "fn": 0, "precision": 0.0,
                                      "recall": 0.0, "f1": 0.0, "detected": set(), "missed": set()})
                    for scores in run_scores]
+        remaining_ids = set.union(*(item["detected"] for item in samples))
+        unmatched = sum(item["fp"] for item in samples)
         row = {
             "phase": phase_name,
+            "metric_kind": "remediation" if args.after_fix else "detection",
             "run_id": run_id,
             "commit_sha": commit_sha,
             "n_runs": len(paths),
             "tool": tool,
-            "tp": sum(item["tp"] for item in samples),
-            "fp": sum(item["fp"] for item in samples),
-            "fn": sum(item["fn"] for item in samples),
-            "precision": sum(item["precision"] for item in samples) / len(samples),
-            "recall": sum(item["recall"] for item in samples) / len(samples),
-            "f1": sum(item["f1"] for item in samples) / len(samples),
-            "detected_seed_ids": ";".join(sorted(set.union(*(item["detected"] for item in samples)))),
-            "missed_seed_ids": ";".join(sorted(set.union(*(item["missed"] for item in samples)))),
+            "tp": "N/A" if args.after_fix else sum(item["tp"] for item in samples),
+            "fp": "N/A" if args.after_fix else sum(item["fp"] for item in samples),
+            "fn": "N/A" if args.after_fix else sum(item["fn"] for item in samples),
+            "precision": "N/A" if args.after_fix else sum(item["precision"] for item in samples) / len(samples),
+            "recall": "N/A" if args.after_fix else sum(item["recall"] for item in samples) / len(samples),
+            "f1": "N/A" if args.after_fix else sum(item["f1"] for item in samples) / len(samples),
+            "detected_seed_ids": ";".join(sorted(remaining_ids)),
+            "missed_seed_ids": "" if args.after_fix else ";".join(sorted(set.union(*(item["missed"] for item in samples)))),
+            "remaining_seed_ids": ";".join(sorted(remaining_ids)) if args.after_fix else "",
+            "residual_seed_count": len(remaining_ids) if args.after_fix else "N/A",
+            "unmatched_findings": unmatched,
         }
         rows.append(row)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    mode = "w" if args.overwrite or not args.output.exists() else "a"
-    with args.output.open(mode, newline="", encoding="utf-8") as handle:
+    existing: list[dict[str, Any]] = []
+    if args.output.exists() and not args.overwrite:
+        with args.output.open(newline="", encoding="utf-8-sig") as handle:
+            existing = list(csv.DictReader(handle))
+        for old in existing:
+            old.setdefault("metric_kind", "remediation" if old.get("phase") == "after-fix" else "detection")
+            old.setdefault("remaining_seed_ids", "")
+            old.setdefault("residual_seed_count", "")
+            old.setdefault("unmatched_findings", old.get("fp", ""))
+    with args.output.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=CSV_FIELDS)
-        if mode == "w":
-            writer.writeheader()
+        writer.writeheader()
+        writer.writerows(existing)
         writer.writerows(rows)
     for row in rows:
-        print(f"{row['tool']}: precision={row['precision']:.3f} recall={row['recall']:.3f} f1={row['f1']:.3f} (n={row['n_runs']})")
+        if args.after_fix:
+            print(f"{row['tool']}: residual seeded findings={row['residual_seed_count']} unmatched findings={row['unmatched_findings']} (n={row['n_runs']})")
+        else:
+            print(f"{row['tool']}: precision={row['precision']:.3f} recall={row['recall']:.3f} f1={row['f1']:.3f} (n={row['n_runs']})")
     print(f"Appended {len(rows)} tool row(s) to {args.output}")
     if scan_errors:
         print("Input reports include scanner errors; metrics may be incomplete:", file=sys.stderr)

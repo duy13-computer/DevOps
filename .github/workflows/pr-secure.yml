@@ -76,7 +76,7 @@ jobs:
               gitleaks dir Code/DevSecOps --config Code/DevSecOps/.gitleaks.toml --report-format json --report-path Code/DevSecOps/tests/results/raw/gitleaks.json --exit-code 0
               ;;
             trivy-fs)
-              trivy fs --scanners vuln,misconfig,secret --skip-dirs Code/DevSecOps/ground_truth/patches --format json --output Code/DevSecOps/tests/results/raw/trivy-fs.json --exit-code 0 --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL Code/DevSecOps
+              trivy fs --scanners vuln,misconfig,secret --skip-dirs Code/DevSecOps/ground_truth/patches --skip-dirs Code/DevSecOps/tests/results --skip-dirs Code/DevSecOps/reports --skip-dirs Code/DevSecOps/.venv --skip-dirs Code/DevSecOps/__pycache__ --skip-files Code/DevSecOps/lab/docker/Dockerfile.vuln --format json --output Code/DevSecOps/tests/results/raw/trivy-fs.json --exit-code 0 --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL Code/DevSecOps
               ;;
             checkov)
               status=0
@@ -123,6 +123,10 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Validate exception policy
+        id: exceptions
+        run: python Code/DevSecOps/tools/check_exceptions.py Code/DevSecOps/policy/exceptions.json
+
       - name: Download parallel scanner reports
         if: always()
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -146,7 +150,6 @@ jobs:
           curl -fsSL https://github.com/open-policy-agent/conftest/releases/download/v0.64.0/conftest_0.64.0_Linux_x86_64.tar.gz -o "$RUNNER_TEMP/conftest.tar.gz"
           tar -xzf "$RUNNER_TEMP/conftest.tar.gz" -C "$RUNNER_TEMP" conftest
           sudo install "$RUNNER_TEMP/conftest" /usr/local/bin/conftest
-          if [ ! -f Code/DevSecOps/policy/exceptions.json ]; then printf '{"exceptions":[]}\n' > Code/DevSecOps/policy/exceptions.json; fi
           conftest test Code/DevSecOps/reports/summary.json --policy Code/DevSecOps/policy/g0
 
       - name: Enforce g1 high and critical gate
@@ -157,7 +160,8 @@ jobs:
         if: always()
         env:
           SUMMARY_OUTCOME: ${{ steps.summary.outcome }}
-        run: test "$SUMMARY_OUTCOME" = success
+          EXCEPTION_OUTCOME: ${{ steps.exceptions.outcome }}
+        run: test "$SUMMARY_OUTCOME" = success && test "$EXCEPTION_OUTCOME" = success
 
       - name: Upload normalized evidence
         if: always()

@@ -5,3 +5,6 @@ tests/results/raw/*.json
 !tests/results/raw/.gitkeep
 tests/results/metrics/*.json
 !tests/results/metrics/.gitkeep
+tests/results/experiments/
+tests/results/metrics/detection_rate.csv
+tests/results/metrics/parallel_vs_seq.csv

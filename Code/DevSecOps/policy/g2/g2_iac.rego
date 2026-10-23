@@ -26,6 +26,15 @@ blocked_iac_rule_ids := {
   "SEEDED-IAC-06",
 }
 
+# Never let an unlisted CRITICAL IaC rule bypass the release gate.
+deny contains message if {
+  finding := input.findings[_]
+  finding.category == "iac"
+  finding.severity == "CRITICAL"
+  not exceptions.valid_exception(finding)
+  message := sprintf("g2 blocked CRITICAL IaC finding %s at %s", [finding.rule_id, finding.file])
+}
+
 # g2 blocks known public-network, public-bucket, wildcard-IAM, and weak-ECR checks.
 deny contains message if {
   finding := input.findings[_]
@@ -64,7 +73,7 @@ deny contains message if {
   message := sprintf("g2 blocked wildcard IAM policy in %s", [finding.file])
 }
 
-# The release gate blocks HIGH/CRITICAL image findings and any detected secret.
+# The gate blocks HIGH/CRITICAL image findings.
 deny contains message if {
   finding := input.findings[_]
   finding.tool in {"trivy-image", "trivy_image"}
@@ -78,7 +87,7 @@ deny contains message if {
 
 deny contains message if {
   finding := input.findings[_]
-  finding.tool in {"gitleaks", "secret-scanning"}
+  finding.category == "secret"
   not exceptions.valid_exception(finding)
   message := sprintf("g2 blocked secret finding at %s", [finding.file])
 }

@@ -31,4 +31,11 @@ path = '''(^|/)leaky\.yml$'''
 
 [allowlist]
 description = "Keep remediation diffs from being rescanned as live secrets."
-paths = ['''(^|/)ground_truth/patches/''', '''(^|/)\.gitleaks\.toml$''']
+paths = [
+  '''(^|/)ground_truth/patches/''',
+  '''(^|/)\.gitleaks\.toml$''',
+  '''(^|/)tests/results/''',
+  '''(^|/)reports/''',
+  '''(^|/)\.venv/''',
+  '''(^|/)__pycache__/''',
+]

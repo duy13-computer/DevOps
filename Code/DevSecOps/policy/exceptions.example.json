@@ -1,0 +1,17 @@
+{
+  "exceptions": [
+    {
+      "id": "EXC-2026-001",
+      "owner": "appsec@example.edu",
+      "justification": "Teaching example only; remove the seeded rule before any real CI use.",
+      "expires": "2026-12-31T23:59:59Z",
+      "scope": {
+        "tool": "semgrep",
+        "category": "sast",
+        "severity": "HIGH",
+        "rule_id": "python.lang.security.audit.eval",
+        "file": "Code/DevSecOps/src/app/app.py"
+      }
+    }
+  ]
+}

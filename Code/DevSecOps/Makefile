@@ -15,7 +15,7 @@ EXCEPTION_DATA := $(if $(wildcard policy/exceptions.json),--data policy/exceptio
 
 export PATH := $(VENV_BIN):$(PATH)
 
-.PHONY: help bootstrap check-tools scan-all summarize gate fix measure benchmark
+.PHONY: help bootstrap check-tools scan-all summarize check-exceptions gate fix measure benchmark
 
 help:
 	@printf '%s\n' \
@@ -46,7 +46,11 @@ summarize:
 	$(PYTHON) tools/test/summarize.py --results tests/results/raw --output-dir reports \
 	  --exceptions policy/exceptions.json
 
+check-exceptions:
+	$(PYTHON) tools/check_exceptions.py policy/exceptions.json
+
 gate:
+	$(PYTHON) tools/check_exceptions.py policy/exceptions.json
 	conftest test reports/summary.json --policy policy/g0 --all-namespaces
 	conftest test reports/summary.json --policy policy/g1 --policy rules/conftest \
 	  $(EXCEPTION_DATA) --all-namespaces

@@ -1,0 +1,103 @@
+name: Ground truth before-after experiment
+
+on:
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: State to measure
+        required: true
+        type: choice
+        options:
+          - baseline
+          - after-fix
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ground-truth-${{ github.ref }}-${{ inputs.phase }}
+  cancel-in-progress: false
+
+jobs:
+  experiment:
+    name: Measure ${{ inputs.phase }} state
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      PHASE: ${{ inputs.phase }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned Python scanners
+        run: python -m pip install --disable-pip-version-check semgrep==1.179.0 checkov==3.3.30
+
+      - name: Install pinned scanner and SBOM CLIs
+        run: |
+          curl -fsSL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz -o "$RUNNER_TEMP/gitleaks.tar.gz"
+          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
+          sudo install "$RUNNER_TEMP/gitleaks" /usr/local/bin/gitleaks
+          curl -fsSL https://github.com/aquasecurity/trivy/releases/download/v0.74.0/trivy_0.74.0_Linux-64bit.tar.gz -o "$RUNNER_TEMP/trivy.tar.gz"
+          tar -xzf "$RUNNER_TEMP/trivy.tar.gz" -C "$RUNNER_TEMP" trivy
+          sudo install "$RUNNER_TEMP/trivy" /usr/local/bin/trivy
+          curl -fsSL https://github.com/anchore/syft/releases/download/v1.55.0/syft_1.55.0_linux_amd64.tar.gz -o "$RUNNER_TEMP/syft.tar.gz"
+          tar -xzf "$RUNNER_TEMP/syft.tar.gz" -C "$RUNNER_TEMP" syft
+          sudo install "$RUNNER_TEMP/syft" /usr/local/bin/syft
+
+      - name: Validate exception policy
+        run: python Code/DevSecOps/tools/check_exceptions.py Code/DevSecOps/policy/exceptions.json
+
+      - name: Install Conftest
+        run: |
+          curl -fsSL https://github.com/open-policy-agent/conftest/releases/download/v0.64.0/conftest_0.64.0_Linux_x86_64.tar.gz -o "$RUNNER_TEMP/conftest.tar.gz"
+          tar -xzf "$RUNNER_TEMP/conftest.tar.gz" -C "$RUNNER_TEMP" conftest
+          sudo install "$RUNNER_TEMP/conftest" /usr/local/bin/conftest
+
+      - name: Run three repeated scans and create SBOMs
+        run: |
+          python Code/DevSecOps/tools/test/measure_pipeline.py "--${PHASE}" --runs 3 --include-image --run-id "$GITHUB_RUN_ID" --commit-sha "$GITHUB_SHA"
+
+      - name: Prove expected gate outcome for each run
+        run: |
+          evidence="Code/DevSecOps/tests/results/experiments/$GITHUB_RUN_ID/$PHASE/gate-results.txt"
+          mkdir -p "$(dirname "$evidence")"
+          : > "$evidence"
+          shopt -s nullglob
+          reports=(Code/DevSecOps/tests/results/experiments/"$GITHUB_RUN_ID"/"$PHASE"/run-*/summary/summary.json)
+          test "${#reports[@]}" -eq 3
+          for report in "${reports[@]}"; do
+            if [ "$PHASE" = baseline ]; then
+              if gate_output=$(conftest test "$report" --policy Code/DevSecOps/policy/g1 --policy Code/DevSecOps/rules/conftest --data Code/DevSecOps/policy/exceptions.json 2>&1); then
+                echo "FAIL: baseline passed g1 unexpectedly ($report)" | tee -a "$evidence"
+                exit 1
+              else
+                printf '%s\n' "$gate_output" | tee -a "$evidence"
+                if [[ "$gate_output" != *"g1 blocked"* ]]; then
+                  echo "FAIL: g1 returned an error without a policy denial ($report)" | tee -a "$evidence"
+                  exit 1
+                fi
+                echo "PASS: baseline was blocked by g1 as expected ($report)" | tee -a "$evidence"
+              fi
+            else
+              conftest test "$report" --policy Code/DevSecOps/policy/g1 --policy Code/DevSecOps/rules/conftest --data Code/DevSecOps/policy/exceptions.json
+              conftest test "$report" --policy Code/DevSecOps/policy/g2 --policy Code/DevSecOps/rules/conftest --data Code/DevSecOps/policy/exceptions.json
+              echo "PASS: after-fix passed g1 and g2 ($report)" | tee -a "$evidence"
+            fi
+          done
+
+      - name: Upload experiment evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ground-truth-${{ inputs.phase }}-${{ github.run_id }}
+          path: |
+            Code/DevSecOps/tests/results/experiments/${{ github.run_id }}/
+            Code/DevSecOps/tests/results/metrics/pipeline_time.csv
+            Code/DevSecOps/tests/results/metrics/detection_rate.csv
+          if-no-files-found: warn
+          retention-days: 90

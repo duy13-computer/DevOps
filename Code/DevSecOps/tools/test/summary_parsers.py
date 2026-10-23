@@ -91,7 +91,8 @@ def parse_trivy(report: Any, findings: list[dict[str, Any]], image: bool) -> Non
                 remediation=("Upgrade to " + item["FixedVersion"] if item.get("FixedVersion") else None))
         for item in result.get("Misconfigurations", []) or []:
             cause = item.get("CauseMetadata") or {}
-            add(findings, tool, item.get("Severity"), "config",
+            category = "iac" if str(target).lower().endswith((".tf", ".tf.json")) else "config"
+            add(findings, tool, item.get("Severity"), category,
                 item.get("Message") or item.get("Title"), target, item.get("ID"),
                 line=cause.get("StartLine") or cause.get("start_line"),
                 remediation=item.get("Resolution"))
@@ -110,8 +111,16 @@ def parse_checkov(report: Any, findings: list[dict[str, Any]]) -> None:
         for item in results.get("failed_checks", []) or []:
             line_range = item.get("file_line_range") or []
             line = line_range[0] if line_range else None
+            file_path = str(item.get("file_path") or "<unknown>").replace("\\", "/")
+            normalized_file = file_path.lstrip("/")
+            if normalized_file == "main.tf":
+                normalized_file = "Code/DevSecOps/infra/main.tf"
+            elif normalized_file.startswith("infra/"):
+                normalized_file = "Code/DevSecOps/" + normalized_file
+            elif not normalized_file.startswith("Code/DevSecOps/") and "Code/DevSecOps/" not in normalized_file:
+                normalized_file = "Code/DevSecOps/infra/" + normalized_file
             add(findings, "checkov", item.get("severity") or "HIGH", "iac",
-                item.get("check_name"), item.get("file_path"), item.get("check_id"),
+                item.get("check_name"), normalized_file, item.get("check_id"),
                 line=line, remediation=item.get("guideline") or item.get("guideline_url"),
                 resource_type=item.get("resource") or item.get("resource_type"),
                 resource=item.get("resource_address"))

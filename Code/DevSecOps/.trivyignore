@@ -1,4 +1,2 @@
-# Example time-bounded exception format validated by tools/check_exceptions.py.
-# owner: course-team@example.edu
-# expires: 2026-12-31
-CVE-2021-00000 exp:2026-12-31
+# Finding suppressions are centrally governed in policy/exceptions.json.
+# Keep this file free of active IDs so scanner findings remain visible to policy gates.

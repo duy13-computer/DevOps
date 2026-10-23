@@ -1,18 +1,12 @@
-# Script đo và báo cáo
+# Công cụ thí nghiệm
 
-`run_pipeline_metrics.sh` chạy chuỗi scan local, lưu JSON trong `tests/results/raw/` và thời gian coarse-grained trong `tests/results/metrics/timing.json`. `summarize.py` chuẩn hóa report thành `reports/summary.json` và `reports/pr-summary.md`.
-
-`measure_pipeline.py` chạy Semgrep, Gitleaks, Trivy FS và Checkov tối thiểu ba lần, ghi trung bình wall time/CPU time theo scanner vào `tests/results/metrics/pipeline_time.csv`. Chỉ định đúng trạng thái nguồn bằng `--baseline` hoặc `--after-fix`; thêm `--include-image` để build image phù hợp phase và đo Trivy image.
-
-`benchmark_parallel.sh` so sánh tuần tự với GNU Parallel cho cùng bốn scanner, tối thiểu ba cặp lượt. Nó luân phiên thứ tự chạy để hạn chế ảnh hưởng cache và ghi `parallel_vs_seq.csv`.
-
-Ví dụ từ gốc repository:
+`measure_pipeline.py` thực hiện tối thiểu ba lượt. `--baseline` tạo bản sao tạm có seed bằng cách đảo patch remediation; `--after-fix` quét checkout hiện tại. `--include-image` build image tương ứng với phase, quét Trivy image và tạo CycloneDX SBOM. Raw reports và summary được giữ riêng cho từng lượt.
 
 ```bash
-make -C Code/DevSecOps measure PHASE=baseline RUNS=3
-make -C Code/DevSecOps benchmark PHASE=baseline RUNS=3
-make -C Code/DevSecOps measure PHASE=after-fix RUNS=3
-make -C Code/DevSecOps benchmark PHASE=after-fix RUNS=3
+python Code/DevSecOps/tools/test/measure_pipeline.py --baseline --runs 3 --include-image
+python Code/DevSecOps/tools/test/measure_pipeline.py --after-fix --runs 3 --include-image
 ```
 
-Chỉ số detection rate do `verify_ground_truth.py` tạo. Định nghĩa các metric và giới hạn của phép đo nằm trong `docs/measurement.md`.
+`verify_ground_truth.py` tự chạy cuối phép đo để ghi `tests/results/metrics/detection_rate.csv`. `pipeline_time.csv` chỉ là dữ liệu hợp lệ khi `measurement_status=valid`; thiếu CLI/report không được tính thành một lần chạy nhanh.
+
+Định nghĩa metric, cache, gate kỳ vọng và giới hạn kết luận nằm trong `docs/measurement.md`. Ma trận các seed nằm trong `ground_truth/seed-remediation-matrix.md`.
