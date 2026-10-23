@@ -79,7 +79,16 @@ jobs:
               trivy fs --scanners vuln,misconfig,secret --format json --output Code/DevSecOps/tests/results/raw/trivy-fs.json --exit-code 0 --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL Code/DevSecOps
               ;;
             checkov)
-              checkov -d Code/DevSecOps/infra -o json --output-file-path Code/DevSecOps/tests/results/raw/checkov.json --soft-fail
+              status=0
+              if checkov -d Code/DevSecOps/infra -o json --output-file-path Code/DevSecOps/tests/results/raw --soft-fail; then
+                :
+              else
+                status=$?
+              fi
+              if [ -f Code/DevSecOps/tests/results/raw/results_json.json ]; then
+                mv Code/DevSecOps/tests/results/raw/results_json.json Code/DevSecOps/tests/results/raw/checkov.json
+              fi
+              exit "$status"
               ;;
           esac
 

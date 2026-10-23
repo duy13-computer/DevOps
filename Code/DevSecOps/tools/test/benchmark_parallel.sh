@@ -77,7 +77,7 @@ run_scanner() {
       ;;
     checkov)
       checkov -d "$PROJECT_ROOT/infra" -o json \
-        --output-file-path "$REPORT_DIR/checkov.json" --soft-fail
+        --output-file-path "$REPORT_DIR" --soft-fail
       ;;
     *)
       echo "Unknown scanner: $tool" >&2

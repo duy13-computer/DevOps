@@ -11,8 +11,21 @@ if [[ -f "$ROOT/policy/exceptions.json" ]]; then
   EXCEPTION_DATA=(--data "$ROOT/policy/exceptions.json")
 fi
 mkdir -p "$RAW" "$REPORTS" "$(dirname "$METRICS")"
+clear_checkov_output() {
+  if [[ -d "$RAW/checkov.json" && ! -L "$RAW/checkov.json" ]]; then
+    rm -f -- "$RAW/checkov.json/results_json.json"
+    rmdir -- "$RAW/checkov.json" || {
+      echo "Refusing to remove non-empty legacy Checkov output directory: $RAW/checkov.json" >&2
+      return 1
+    }
+  else
+    rm -f -- "$RAW/checkov.json"
+  fi
+  rm -f -- "$RAW/results_json.json"
+}
+clear_checkov_output || exit 1
 rm -f "$RAW/semgrep.json" "$RAW/gitleaks.json" "$RAW/trivy-fs.json" \
-  "$RAW/trivy-image.json" "$RAW/checkov.json" "$RAW/findings.json" "$RAW/sbom.cyclonedx.json"
+  "$RAW/trivy-image.json" "$RAW/findings.json" "$RAW/sbom.cyclonedx.json"
 declare -A ELAPSED=()
 FAILURES=()
 
@@ -28,13 +41,23 @@ run_step() {
   return 0
 }
 
+run_checkov() {
+  local status=0
+  rm -f "$RAW/results_json.json"
+  checkov -d "$ROOT/infra" -o json --output-file-path "$RAW" --soft-fail || status=$?
+  if [[ -f "$RAW/results_json.json" ]]; then
+    mv "$RAW/results_json.json" "$RAW/checkov.json" || return $?
+  fi
+  return "$status"
+}
+
 run_step docker_build docker build -f "$ROOT/lab/docker/Dockerfile" -t "$IMAGE" "$ROOT"
 run_step exception_validation python3 "$ROOT/tools/check_exceptions.py"
 run_step semgrep semgrep scan --config "$ROOT/rules/semgrep" --json --output "$RAW/semgrep.json" "$ROOT/src"
 run_step gitleaks gitleaks dir "$ROOT" --config "$ROOT/.gitleaks.toml" --report-format json --report-path "$RAW/gitleaks.json" --exit-code 0
 run_step trivy_fs trivy fs --scanners vuln,misconfig,secret --format json --exit-code 0 --output "$RAW/trivy-fs.json" --ignorefile "$ROOT/.trivyignore" "$ROOT"
 run_step trivy_image trivy image --format json --exit-code 0 --output "$RAW/trivy-image.json" --ignorefile "$ROOT/.trivyignore" "$IMAGE"
-run_step checkov checkov -d "$ROOT/infra" -o json --output-file-path "$RAW/checkov.json" --soft-fail
+run_step checkov run_checkov
 run_step syft syft "$IMAGE" -o cyclonedx-json="$RAW/sbom.cyclonedx.json"
 run_step normalize python3 "$ROOT/tools/normalize_results.py" --results "$RAW" --output "$RAW/findings.json"
 run_step summarize python3 "$ROOT/tools/test/summarize.py" --results "$RAW" --output-dir "$REPORTS" \

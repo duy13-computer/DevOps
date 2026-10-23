@@ -51,7 +51,7 @@ def scanner_commands(raw: Path, include_image: bool, phase: str, image: str) -> 
         ]),
         ("checkov", [
             "checkov", "-d", str(PROJECT_ROOT / "infra"), "-o", "json",
-            "--output-file-path", str(raw / "checkov.json"), "--soft-fail",
+            "--output-file-path", str(raw), "--soft-fail",
         ]),
     ]
     if include_image:
