@@ -161,7 +161,7 @@ resource "aws_kms_key" "flow_logs" {
 
 resource "aws_cloudwatch_log_group" "flow_logs" {
   name              = "/devsecops/lab/vpc-flow-logs"
-  retention_in_days = 90
+  retention_in_days = 365
   kms_key_id        = aws_kms_key.flow_logs.arn
 }
 
@@ -196,8 +196,13 @@ resource "aws_iam_role_policy" "flow_logs" {
       },
       {
         Effect   = "Allow"
-        Action   = ["logs:DescribeLogGroups", "logs:DescribeLogStreams"]
+        Action   = ["logs:DescribeLogGroups"]
         Resource = "*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["logs:DescribeLogStreams"]
+        Resource = "${aws_cloudwatch_log_group.flow_logs.arn}:*"
       }
     ]
   })
@@ -255,4 +260,14 @@ resource "aws_kms_key" "ecr" {
   description             = "Encrypt DevSecOps lab container images"
   enable_key_rotation     = true
   deletion_window_in_days = 30
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "EnableAccountAdministration"
+      Effect    = "Allow"
+      Principal = { AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root" }
+      Action    = "kms:*"
+      Resource  = "*"
+    }]
+  })
 }
