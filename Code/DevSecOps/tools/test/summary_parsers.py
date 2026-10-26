@@ -49,8 +49,17 @@ def parse_semgrep(report: Any, findings: list[dict[str, Any]]) -> None:
     for item in report.get("results", []) or []:
         extra = item.get("extra") or {}
         metadata = extra.get("metadata") or {}
+        rule_id = str(item.get("check_id") or "")
+        for prefix in (
+            "Code.DevSecOps.rules.semgrep.",
+            "Code/DevSecOps/rules/semgrep/",
+            "Code.DevSecOps.rules.",
+        ):
+            if rule_id.startswith(prefix):
+                rule_id = rule_id[len(prefix):]
+                break
         add(findings, "semgrep", extra.get("severity"), "sast", extra.get("message"),
-            item.get("path"), item.get("check_id"),
+            item.get("path"), rule_id,
             line=(item.get("start") or {}).get("line"),
             cwe=metadata.get("cwe"), remediation=metadata.get("fix"))
 

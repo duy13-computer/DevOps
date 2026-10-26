@@ -16,10 +16,23 @@ sys.path.insert(0, str(TOOLS_DIR / "test"))
 
 import check_exceptions  # noqa: E402
 import measure_pipeline  # noqa: E402
+import summary_parsers  # noqa: E402
 import verify_ground_truth  # noqa: E402
 
 
 class GroundTruthTests(unittest.TestCase):
+    def test_semgrep_parser_removes_config_path_from_rule_id(self) -> None:
+        findings: list[dict[str, object]] = []
+        summary_parsers.parse_semgrep({
+            "results": [{
+                "check_id": "Code.DevSecOps.rules.semgrep.python.lang.security.audit.eval",
+                "path": "Code/DevSecOps/src/app/app.py",
+                "start": {"line": 40},
+                "extra": {"severity": "ERROR", "message": "unsafe eval"},
+            }],
+        }, findings)
+        self.assertEqual(findings[0]["rule_id"], "python.lang.security.audit.eval")
+
     def test_baseline_reconstruction_reverses_remediation_patches(self) -> None:
         with tempfile.TemporaryDirectory(dir=WORKSPACE_ROOT) as temporary:
             baseline = measure_pipeline.prepare_baseline(Path(temporary))
@@ -45,6 +58,29 @@ class GroundTruthTests(unittest.TestCase):
             "file": "src/app.py",
         }
         self.assertTrue(verify_ground_truth.matches(seed, finding))
+
+    def test_live_rule_ids_match_declared_checkov_and_docker_seeds(self) -> None:
+        seeds = verify_ground_truth.load_seeds(
+            TOOLS_DIR.parent / "ground_truth" / "seeds.yaml"
+        )
+        cases = {
+            "SEEDED-IAC-03": {
+                "tool": "checkov", "category": "iac", "rule_id": "CKV_AWS_145",
+                "file": "Code/DevSecOps/infra/main.tf",
+            },
+            "SEEDED-IAC-05": {
+                "tool": "checkov", "category": "iac", "rule_id": "CKV_AWS_274",
+                "file": "Code/DevSecOps/infra/main.tf",
+            },
+            "SEEDED-DOCKER-02": {
+                "tool": "trivy-fs", "category": "config", "rule_id": "DS-0002",
+                "file": "Code/DevSecOps/lab/docker/Dockerfile",
+            },
+        }
+        for seed_id, finding in cases.items():
+            with self.subTest(seed=seed_id):
+                seed = next(item for item in seeds if item["id"] == seed_id)
+                self.assertTrue(verify_ground_truth.matches(seed, finding))
 
     def test_score_separates_seeded_matches_from_unmatched_findings(self) -> None:
         seeds = [
@@ -98,6 +134,7 @@ class GroundTruthTests(unittest.TestCase):
                 triage = next(csv.DictReader(stream))
             self.assertEqual(triage["classification"], "PENDING_REVIEW")
             self.assertEqual(triage["rule_id"], "UNSEEDED")
+            self.assertEqual(triage["observed_count"], "1")
 
 
 class ExceptionPolicyTests(unittest.TestCase):

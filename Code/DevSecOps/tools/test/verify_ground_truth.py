@@ -23,7 +23,8 @@ CSV_FIELDS = [
 TRIAGE_FIELDS = [
     "phase", "run_id", "commit_sha", "report", "tool", "finding_key", "category",
     "severity", "rule_id", "cve", "package", "installed_version", "file",
-    "line_start", "title", "classification", "reviewer", "reviewed_at", "rationale",
+    "line_start", "title", "observed_count", "report_paths", "classification",
+    "reviewer", "reviewed_at", "rationale",
 ]
 
 
@@ -253,16 +254,40 @@ def main() -> int:
         if args.after_fix:
             print(f"{row['tool']}: residual seeded findings={row['residual_seed_count']} unmatched findings={row['unmatched_findings']} (n={row['n_runs']})")
         else:
-            print(f"{row['tool']}: precision={row['precision']:.3f} recall={row['recall']:.3f} f1={row['f1']:.3f} (n={row['n_runs']})")
+            print(
+                f"{row['tool']}: seed_precision_proxy={row['precision']:.3f} "
+                f"seed_recall={row['recall']:.3f} seed_f1_proxy={row['f1']:.3f} "
+                f"detected={row['detected_seed_ids'] or '-'} "
+                f"missed={row['missed_seed_ids'] or '-'} "
+                f"unmatched_pending_review={row['unmatched_findings']} (n={row['n_runs']})"
+            )
     print(f"Appended {len(rows)} tool row(s) to {args.output}")
     args.triage_dir.mkdir(parents=True, exist_ok=True)
     safe_run_id = re.sub(r"[^A-Za-z0-9._-]", "_", run_id)
     triage_path = args.triage_dir / f"unmatched_findings_{phase_name}_{safe_run_id}.csv"
+    triage_by_identity: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in triage_rows:
+        identity = (row["tool"], row["finding_key"])
+        if identity not in triage_by_identity:
+            triage_by_identity[identity] = {
+                **row,
+                "observed_count": 1,
+                "report_paths": row["report"],
+            }
+            continue
+        existing_row = triage_by_identity[identity]
+        existing_row["observed_count"] += 1
+        if row["report"] not in existing_row["report_paths"].split(";"):
+            existing_row["report_paths"] += ";" + row["report"]
+    unique_triage_rows = list(triage_by_identity.values())
     with triage_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=TRIAGE_FIELDS)
         writer.writeheader()
-        writer.writerows(triage_rows)
-    print(f"Wrote {len(triage_rows)} unmatched finding(s) for manual triage to {triage_path}")
+        writer.writerows(unique_triage_rows)
+    print(
+        f"Wrote {len(unique_triage_rows)} unique unmatched finding(s) "
+        f"from {len(triage_rows)} observations for manual triage to {triage_path}"
+    )
     if scan_errors:
         print("Input reports include scanner errors; metrics may be incomplete:", file=sys.stderr)
         for error in scan_errors:

@@ -128,7 +128,7 @@
 - id: SEEDED-IAC-03
   tool: checkov
   category: iac
-  rule_id: CKV_AWS_19
+  rule_id: CKV_AWS_145
   file: Code/DevSecOps/infra/main.tf
   line: 54
   severity: HIGH
@@ -144,7 +144,7 @@
 - id: SEEDED-IAC-05
   tool: checkov
   category: iac
-  rule_id: CKV_AWS_1
+  rule_id: CKV_AWS_274
   file: Code/DevSecOps/infra/main.tf
   line: 99
   severity: CRITICAL
@@ -169,7 +169,7 @@
 - id: SEEDED-DOCKER-02
   tool: trivy-fs
   category: config
-  rule_id: AVD-DS-0002
+  rule_id: DS-0002
   file: Code/DevSecOps/lab/docker/Dockerfile
   line: 6
   severity: HIGH
@@ -192,7 +192,7 @@
 - id: SEEDED-DOCKER-05
   tool: trivy-fs
   category: config
-  rule_id: AVD-DS-0005
+  rule_id: DS-0005
   file: Code/DevSecOps/lab/docker/Dockerfile
   line: 12
   severity: LOW
