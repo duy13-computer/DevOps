@@ -1,6 +1,8 @@
 name: Ground truth before-after experiment
 
 on:
+  push:
+    branches: ["codex/**"]
   pull_request:
     branches: [main, master]
   workflow_dispatch:
