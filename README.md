@@ -55,7 +55,7 @@ make -C Code/DevSecOps benchmark PHASE=after-fix RUNS=3
 
 `measure` ghi thời gian từng scanner vào `Code/DevSecOps/tests/results/metrics/pipeline_time.csv`; thêm `INCLUDE_IMAGE=1` để đo build và scan image, hoặc truyền `--include-image` khi gọi script trực tiếp. `benchmark` cần GNU Parallel và ghi các cặp tuần tự/song song vào `parallel_vs_seq.csv`. Cách đọc số liệu và giới hạn đo nằm trong [docs/measurement.md](Code/DevSecOps/docs/measurement.md).
 
-Trên pull request, workflow `Ground truth before-after experiment` chạy tự động cả `baseline` và `after-fix` (năm lượt mỗi phase). Có thể dispatch thủ công nếu chỉ cần chạy một phase. Artifact chứa report từng lượt, SBOM CycloneDX, thời gian, detection rate, phiên bản runner/công cụ, benchmark tuần tự/song song và bằng chứng gate. Workflow nhánh chính sau gate chạy image tạm trên runner và xác nhận `/health`. Các dòng cũ có `measurement_status=invalid` không phải kết quả đo hợp lệ.
+Trên pull request hoặc khi dispatch thủ công, workflow `Ground truth before-after experiment` chạy cả `baseline` và `after-fix` (năm lượt mỗi phase). Artifact chứa report từng lượt, SBOM CycloneDX, thời gian, detection rate, phiên bản runner/công cụ, benchmark tuần tự/song song và bằng chứng gate. Workflow nhánh chính sau gate chạy image tạm trên runner và xác nhận `/health`. Các dòng cũ có `measurement_status=invalid` không phải kết quả đo hợp lệ.
 
 ## Tài liệu và kết quả
 

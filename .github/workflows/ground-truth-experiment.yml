@@ -4,25 +4,16 @@ on:
   pull_request:
     branches: [main, master]
   workflow_dispatch:
-    inputs:
-      phase:
-        description: State to measure
-        required: true
-        type: choice
-        options:
-          - baseline
-          - after-fix
 
 permissions:
   contents: read
 
 concurrency:
-  group: ground-truth-${{ github.ref }}-${{ inputs.phase || 'pull-request' }}
+  group: ground-truth-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   experiment:
-    if: github.event_name == 'pull_request' || matrix.phase == inputs.phase
     name: Measure ${{ matrix.phase }} state
     runs-on: ubuntu-latest
     timeout-minutes: 60
