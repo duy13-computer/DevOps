@@ -8,7 +8,7 @@ Ma trận seed, scanner dự kiến, cách khắc phục và kết quả mong đ
 
 Checkout hiện tại đã có patch remediation. `tools/test/measure_pipeline.py --baseline` sao chép repository vào thư mục tạm và dùng `git apply --reverse` trên bốn patch để khôi phục source, secret fixture, Dockerfile và Terraform baseline. Workspace ban đầu không bị thay đổi. `--after-fix` quét checkout đang mở.
 
-Khi đẩy nhánh `codex/**`, mở pull request hoặc dispatch thủ công workflow `Ground truth before-after experiment`, nó chạy đồng thời `baseline` và `after-fix`, năm lượt mỗi phase. Artifact giữ raw reports, summary chuẩn hóa, detection rate, thời gian, phiên bản công cụ, benchmark tuần tự/song song, Trivy image report, SBOM CycloneDX, gate log và bảng triage. Baseline phải bị g1/g2 chặn; after-fix phải vượt qua g1/g2. Không có scanner/report thành công thì lượt đo được đánh dấu invalid.
+Khi đẩy nhánh `codex/**`, mở pull request hoặc dispatch thủ công workflow `Ground truth before-after experiment`, nó chạy đồng thời `baseline` và `after-fix`, năm lượt mỗi phase. Artifact giữ raw reports, summary chuẩn hóa, detection rate, thời gian, phiên bản công cụ, benchmark tuần tự/song song, Trivy image report, SBOM CycloneDX, gate log, smoke deployment cục bộ và bảng triage. Baseline phải bị g1/g2 chặn; after-fix phải vượt qua g1/g2 và health check của container. Không có scanner/report thành công thì lượt đo được đánh dấu invalid.
 
 Có thể gọi script từ repository root sau khi cài đủ scanner:
 

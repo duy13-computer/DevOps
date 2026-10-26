@@ -12,12 +12,25 @@ from pathlib import Path
 TOOLS_DIR = Path(__file__).resolve().parents[1]
 WORKSPACE_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(TOOLS_DIR))
+sys.path.insert(0, str(TOOLS_DIR / "test"))
 
 import check_exceptions  # noqa: E402
+import measure_pipeline  # noqa: E402
 import verify_ground_truth  # noqa: E402
 
 
 class GroundTruthTests(unittest.TestCase):
+    def test_baseline_reconstruction_reverses_remediation_patches(self) -> None:
+        with tempfile.TemporaryDirectory(dir=WORKSPACE_ROOT) as temporary:
+            baseline = measure_pipeline.prepare_baseline(Path(temporary))
+            dockerfile = baseline / "Code/DevSecOps/lab/docker/Dockerfile"
+            requirements = baseline / "Code/DevSecOps/src/app/requirements.txt"
+            baseline_dockerfile = dockerfile.read_text(encoding="utf-8")
+            self.assertIn("FROM python:3.12-slim", baseline_dockerfile)
+            self.assertIn("USER root", baseline_dockerfile)
+            self.assertIn("requests==2.19.0", baseline_dockerfile)
+            self.assertIn("requests==2.19.0", requirements.read_text(encoding="utf-8"))
+
     def test_seed_matches_project_relative_finding_path(self) -> None:
         seed = {
             "tool": "semgrep",

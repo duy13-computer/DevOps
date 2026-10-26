@@ -10,7 +10,7 @@ Mỗi lượt giữ raw JSON trong `tests/results/experiments/<run-id>/<phase>/r
 
 ## Trước/sau và gate
 
-Workflow `Ground truth before-after experiment` chạy tự động trên pull request hoặc khi dispatch thủ công, luôn chạy cả hai phase. Mỗi phase có năm lượt scan, báo cáo scan image, SBOM và kiểm tra gate từng lượt. Baseline kỳ vọng g1 và g2 chặn; after-fix kỳ vọng g1 và g2 vượt qua. Nếu scanner/report lỗi hoặc kỳ vọng gate không đạt, workflow phải thất bại và artifact được giữ để điều tra.
+Workflow `Ground truth before-after experiment` chạy tự động trên nhánh `codex/**`, pull request hoặc khi dispatch thủ công, luôn chạy cả hai phase. Mỗi phase có năm lượt scan, báo cáo scan image, SBOM và kiểm tra gate từng lượt. Baseline kỳ vọng g1 và g2 chặn; after-fix kỳ vọng g1 và g2 vượt qua rồi smoke deploy image đã quét, gọi endpoint `/health`, ghi digest và log vào artifact. Nếu scanner/report lỗi hoặc kỳ vọng gate/health check không đạt, workflow phải thất bại và artifact được giữ để điều tra.
 
 Workflow chính quét checkout đã sửa và lưu bằng chứng; workflow thực nghiệm là nơi tái tạo có chủ đích lỗi baseline. Không dùng fixture baseline làm ứng dụng để triển khai.
 
