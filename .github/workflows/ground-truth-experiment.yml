@@ -1,6 +1,8 @@
 name: Ground truth before-after experiment
 
 on:
+  pull_request:
+    branches: [main, master]
   workflow_dispatch:
     inputs:
       phase:
@@ -15,16 +17,21 @@ permissions:
   contents: read
 
 concurrency:
-  group: ground-truth-${{ github.ref }}-${{ inputs.phase }}
+  group: ground-truth-${{ github.ref }}-${{ inputs.phase || 'pull-request' }}
   cancel-in-progress: false
 
 jobs:
   experiment:
-    name: Measure ${{ inputs.phase }} state
+    if: github.event_name == 'pull_request' || matrix.phase == inputs.phase
+    name: Measure ${{ matrix.phase }} state
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        phase: [baseline, after-fix]
     env:
-      PHASE: ${{ inputs.phase }}
+      PHASE: ${{ matrix.phase }}
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -58,9 +65,56 @@ jobs:
           tar -xzf "$RUNNER_TEMP/conftest.tar.gz" -C "$RUNNER_TEMP" conftest
           sudo install "$RUNNER_TEMP/conftest" /usr/local/bin/conftest
 
-      - name: Run three repeated scans and create SBOMs
+      - name: Install GNU Parallel and warm Trivy vulnerability database
         run: |
-          python Code/DevSecOps/tools/test/measure_pipeline.py "--${PHASE}" --runs 3 --include-image --run-id "$GITHUB_RUN_ID" --commit-sha "$GITHUB_SHA"
+          sudo apt-get update
+          sudo apt-get install --yes parallel
+          parallel --will-cite --version | head -n 1
+          trivy image --download-db-only
+
+      - name: Record runner and scanner versions
+        run: |
+          evidence="Code/DevSecOps/tests/results/experiments/$GITHUB_RUN_ID/$PHASE"
+          mkdir -p "$evidence"
+          python - "$evidence/environment.json" <<'PY'
+          import json
+          import os
+          import platform
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          def version(command):
+              result = subprocess.run(command, text=True, capture_output=True, check=False)
+              output = (result.stdout or result.stderr).strip().splitlines()
+              return {"exit_code": result.returncode, "output": output[:3]}
+
+          data = {
+              "run_id": os.environ["GITHUB_RUN_ID"],
+              "commit_sha": os.environ["GITHUB_SHA"],
+              "phase": os.environ["PHASE"],
+              "runner_os": os.environ.get("RUNNER_OS"),
+              "runner_arch": os.environ.get("RUNNER_ARCH"),
+              "kernel": platform.platform(),
+              "python": sys.version,
+              "cache_policy": "Trivy vulnerability DB warmed before timing; scanner cache reused within this job",
+              "tool_versions": {
+                  "semgrep": version(["semgrep", "--version"]),
+                  "gitleaks": version(["gitleaks", "version"]),
+                  "trivy": version(["trivy", "--version"]),
+                  "checkov": version(["checkov", "--version"]),
+                  "conftest": version(["conftest", "--version"]),
+                  "syft": version(["syft", "version"]),
+                  "parallel": version(["parallel", "--version"]),
+                  "docker": version(["docker", "version", "--format", "{{.Server.Version}}"]),
+              },
+          }
+          Path(sys.argv[1]).write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+          PY
+
+      - name: Run five repeated scans and create SBOMs
+        run: |
+          python Code/DevSecOps/tools/test/measure_pipeline.py "--${PHASE}" --runs 5 --include-image --run-id "$GITHUB_RUN_ID" --commit-sha "$GITHUB_SHA"
 
       - name: Prove expected gate outcome for each run
         run: |
@@ -69,35 +123,45 @@ jobs:
           : > "$evidence"
           shopt -s nullglob
           reports=(Code/DevSecOps/tests/results/experiments/"$GITHUB_RUN_ID"/"$PHASE"/run-*/summary/summary.json)
-          test "${#reports[@]}" -eq 3
+          test "${#reports[@]}" -eq 5
           for report in "${reports[@]}"; do
             if [ "$PHASE" = baseline ]; then
-              if gate_output=$(conftest test "$report" --policy Code/DevSecOps/policy/g1 --policy Code/DevSecOps/rules/conftest --data Code/DevSecOps/policy/exceptions.json 2>&1); then
-                echo "FAIL: baseline passed g1 unexpectedly ($report)" | tee -a "$evidence"
-                exit 1
-              else
-                printf '%s\n' "$gate_output" | tee -a "$evidence"
-                if [[ "$gate_output" != *"g1 blocked"* ]]; then
-                  echo "FAIL: g1 returned an error without a policy denial ($report)" | tee -a "$evidence"
+              conftest test "$report" --policy Code/DevSecOps/policy/g0 2>&1 | tee -a "$evidence"
+              for gate in g1 g2; do
+                if gate_output=$(conftest test "$report" --policy "Code/DevSecOps/policy/$gate" --policy Code/DevSecOps/rules/conftest --data Code/DevSecOps/policy/exceptions.json 2>&1); then
+                  echo "FAIL: vulnerable baseline unexpectedly passed $gate ($report)" | tee -a "$evidence"
                   exit 1
+                else
+                  printf '%s\n' "$gate_output" | tee -a "$evidence"
+                  if [[ "$gate_output" != *"$gate blocked"* ]]; then
+                    echo "FAIL: $gate returned an error without a policy denial ($report)" | tee -a "$evidence"
+                    exit 1
+                  fi
+                  echo "PASS: vulnerable baseline was blocked by $gate as expected ($report)" | tee -a "$evidence"
                 fi
-                echo "PASS: baseline was blocked by g1 as expected ($report)" | tee -a "$evidence"
-              fi
+              done
             else
+              conftest test "$report" --policy Code/DevSecOps/policy/g0
               conftest test "$report" --policy Code/DevSecOps/policy/g1 --policy Code/DevSecOps/rules/conftest --data Code/DevSecOps/policy/exceptions.json
               conftest test "$report" --policy Code/DevSecOps/policy/g2 --policy Code/DevSecOps/rules/conftest --data Code/DevSecOps/policy/exceptions.json
               echo "PASS: after-fix passed g1 and g2 ($report)" | tee -a "$evidence"
             fi
           done
 
+      - name: Compare sequential and parallel scanner timings
+        run: |
+          bash Code/DevSecOps/tools/test/benchmark_parallel.sh "--${PHASE}" --runs 3
+
       - name: Upload experiment evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ground-truth-${{ inputs.phase }}-${{ github.run_id }}
+          name: ground-truth-${{ matrix.phase }}-${{ github.run_id }}
           path: |
             Code/DevSecOps/tests/results/experiments/${{ github.run_id }}/
             Code/DevSecOps/tests/results/metrics/pipeline_time.csv
             Code/DevSecOps/tests/results/metrics/detection_rate.csv
+            Code/DevSecOps/tests/results/metrics/parallel_vs_seq.csv
+            Code/DevSecOps/tests/results/triage/
           if-no-files-found: warn
           retention-days: 90

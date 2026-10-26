@@ -13,7 +13,7 @@ Pull request
                   └─ chuẩn hóa finding ─ g0 ghi nhận ─ g1 chặn HIGH/CRITICAL
 
 Nhánh main
-  └─ build image cục bộ ─ Trivy image ─ Syft SBOM ─ g1/g2 gates ─ báo cáo artifact
+  └─ build image ─ Trivy image ─ Syft SBOM ─ g1/g2 gates ─ smoke deploy tạm ─ artifact
 ```
 
 Semgrep kiểm tra mã Python; Gitleaks tìm secret; Trivy kiểm tra dependency, cấu hình và image; Checkov kiểm tra Terraform. Conftest áp dụng gate trên report đã chuẩn hóa. Các workflow nằm trong `.github/workflows/`; hướng dẫn chi tiết ở [Code/DevSecOps/README.md](Code/DevSecOps/README.md).
@@ -47,15 +47,15 @@ Sau đó chạy lại scan và gate. Các patch riêng, seed và quy tắc so kh
 Đo tối thiểu ba lượt cho mỗi phase. `baseline` dựng bản sao dễ tổn thương tạm thời; `after-fix` quét checkout hiện tại:
 
 ```bash
-make -C Code/DevSecOps measure PHASE=baseline RUNS=3
-make -C Code/DevSecOps measure PHASE=after-fix RUNS=3
+make -C Code/DevSecOps measure PHASE=baseline RUNS=5 INCLUDE_IMAGE=1
+make -C Code/DevSecOps measure PHASE=after-fix RUNS=5 INCLUDE_IMAGE=1
 make -C Code/DevSecOps benchmark PHASE=baseline RUNS=3
 make -C Code/DevSecOps benchmark PHASE=after-fix RUNS=3
 ```
 
 `measure` ghi thời gian từng scanner vào `Code/DevSecOps/tests/results/metrics/pipeline_time.csv`; thêm `INCLUDE_IMAGE=1` để đo build và scan image, hoặc truyền `--include-image` khi gọi script trực tiếp. `benchmark` cần GNU Parallel và ghi các cặp tuần tự/song song vào `parallel_vs_seq.csv`. Cách đọc số liệu và giới hạn đo nằm trong [docs/measurement.md](Code/DevSecOps/docs/measurement.md).
 
-Trên GitHub, chạy workflow `Ground truth before-after experiment` hai lần, chọn lần lượt `baseline` và `after-fix`. Artifact chứa report từng lượt, SBOM CycloneDX, thời gian, detection rate và bằng chứng gate. Các dòng cũ có `measurement_status=invalid` không phải kết quả đo hợp lệ.
+Trên pull request, workflow `Ground truth before-after experiment` chạy tự động cả `baseline` và `after-fix` (năm lượt mỗi phase). Có thể dispatch thủ công nếu chỉ cần chạy một phase. Artifact chứa report từng lượt, SBOM CycloneDX, thời gian, detection rate, phiên bản runner/công cụ, benchmark tuần tự/song song và bằng chứng gate. Workflow nhánh chính sau gate chạy image tạm trên runner và xác nhận `/health`. Các dòng cũ có `measurement_status=invalid` không phải kết quả đo hợp lệ.
 
 ## Tài liệu và kết quả
 
@@ -67,4 +67,4 @@ Trên GitHub, chạy workflow `Ground truth before-after experiment` hai lần, 
 - `Code/DevSecOps/tests/results/metrics/`: thời gian và detection rate.
 - `Code/DevSecOps/ground_truth/`: seed và patch phục vụ thí nghiệm.
 
-Không thêm credentials thật vào repo. Chỉ dùng chuỗi giả được ghi rõ cho fixture. Workflow hiện chỉ quét, áp dụng gate và lưu bằng chứng; không cần tài khoản AWS.
+Không thêm credentials thật vào repo. Chỉ dùng chuỗi giả được ghi rõ cho fixture. Workflow không cần tài khoản AWS; smoke deployment chạy tạm trên runner và không publish image ra registry.

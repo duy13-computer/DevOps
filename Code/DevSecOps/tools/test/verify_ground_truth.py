@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import os
 import re
@@ -18,6 +19,11 @@ CSV_FIELDS = [
     "phase", "metric_kind", "run_id", "commit_sha", "n_runs", "tool", "tp", "fp", "fn",
     "precision", "recall", "f1", "detected_seed_ids", "missed_seed_ids",
     "remaining_seed_ids", "residual_seed_count", "unmatched_findings",
+]
+TRIAGE_FIELDS = [
+    "phase", "run_id", "commit_sha", "report", "tool", "finding_key", "category",
+    "severity", "rule_id", "cve", "package", "installed_version", "file",
+    "line_start", "title", "classification", "reviewer", "reviewed_at", "rationale",
 ]
 
 
@@ -105,17 +111,19 @@ def score_run(findings: list[dict[str, Any]], seeds: list[dict[str, Any]]) -> di
         expected = [seed for seed in measured if seed.get("tool") == tool]
         candidates = [item for item in findings if item.get("tool") == tool]
         detected: set[str] = set()
-        false_positives = 0
+        unmatched_findings: list[dict[str, Any]] = []
         for finding in candidates:
             match = next((seed for seed in expected
                           if seed["id"] not in detected and matches(seed, finding)), None)
             if match:
                 detected.add(str(match["id"]))
             else:
-                false_positives += 1
+                unmatched_findings.append(finding)
         missed = {str(seed["id"]) for seed in expected} - detected
         tp = len(detected)
-        fp = false_positives
+        # Unmatched findings are not automatically false positives: they may be
+        # real findings missing from the seed manifest. Keep them for human triage.
+        fp = len(unmatched_findings)
         fn = len(missed)
         precision = tp / (tp + fp) if tp + fp else 0.0
         recall = tp / (tp + fn) if tp + fn else 0.0
@@ -123,6 +131,7 @@ def score_run(findings: list[dict[str, Any]], seeds: list[dict[str, Any]]) -> di
         scores[tool] = {
             "tp": tp, "fp": fp, "fn": fn, "precision": precision,
             "recall": recall, "f1": f1, "detected": detected, "missed": missed,
+            "unmatched_findings": unmatched_findings,
         }
     return scores
 
@@ -136,6 +145,7 @@ def main() -> int:
     parser.add_argument("--findings", type=Path, nargs="+", help="one or more normalized summary.json files; multiple inputs are averaged")
     parser.add_argument("--seeds", type=Path, default=project / "ground_truth/seeds.yaml")
     parser.add_argument("--output", type=Path, default=project / "tests/results/metrics/detection_rate.csv")
+    parser.add_argument("--triage-dir", type=Path, default=project / "tests/results/triage")
     parser.add_argument("--run-id", default="")
     parser.add_argument("--commit-sha", default="")
     parser.add_argument("--overwrite", action="store_true", help="replace the metrics CSV instead of appending rows")
@@ -147,12 +157,46 @@ def main() -> int:
     seeds = load_seeds(args.seeds)
     phase_name = "after-fix" if args.after_fix else "baseline"
     run_scores: list[dict[str, dict[str, Any]]] = []
+    triage_rows: list[dict[str, Any]] = []
     report_ids: list[str] = []
     commit_ids: list[str] = []
     scan_errors: list[str] = []
     for path in paths:
         data = json.loads(path.read_text(encoding="utf-8"))
-        run_scores.append(score_run(data.get("findings", []), seeds))
+        scores = score_run(data.get("findings", []), seeds)
+        run_scores.append(scores)
+        report_run_id = str(data.get("run_id", ""))
+        report_commit = str(data.get("commit_sha", ""))
+        for tool, score in scores.items():
+            for finding in score["unmatched_findings"]:
+                finding_key = str(
+                    finding.get("fingerprint")
+                    or finding.get("finding_id")
+                    or hashlib.sha256(
+                        json.dumps(finding, sort_keys=True, ensure_ascii=False).encode("utf-8")
+                    ).hexdigest()[:20]
+                )
+                triage_rows.append({
+                    "phase": phase_name,
+                    "run_id": report_run_id or args.run_id,
+                    "commit_sha": report_commit or args.commit_sha,
+                    "report": path.as_posix(),
+                    "tool": tool,
+                    "finding_key": finding_key,
+                    "category": finding.get("category", ""),
+                    "severity": finding.get("severity", ""),
+                    "rule_id": finding.get("rule_id", ""),
+                    "cve": finding.get("cve", ""),
+                    "package": finding.get("package", ""),
+                    "installed_version": finding.get("installed_version", finding.get("version", "")),
+                    "file": finding.get("file", ""),
+                    "line_start": finding.get("line_start", ""),
+                    "title": finding.get("title", ""),
+                    "classification": "PENDING_REVIEW",
+                    "reviewer": "",
+                    "reviewed_at": "",
+                    "rationale": "",
+                })
         if data.get("run_id"):
             report_ids.append(str(data["run_id"]))
         if data.get("commit_sha"):
@@ -211,6 +255,14 @@ def main() -> int:
         else:
             print(f"{row['tool']}: precision={row['precision']:.3f} recall={row['recall']:.3f} f1={row['f1']:.3f} (n={row['n_runs']})")
     print(f"Appended {len(rows)} tool row(s) to {args.output}")
+    args.triage_dir.mkdir(parents=True, exist_ok=True)
+    safe_run_id = re.sub(r"[^A-Za-z0-9._-]", "_", run_id)
+    triage_path = args.triage_dir / f"unmatched_findings_{phase_name}_{safe_run_id}.csv"
+    with triage_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=TRIAGE_FIELDS)
+        writer.writeheader()
+        writer.writerows(triage_rows)
+    print(f"Wrote {len(triage_rows)} unmatched finding(s) for manual triage to {triage_path}")
     if scan_errors:
         print("Input reports include scanner errors; metrics may be incomplete:", file=sys.stderr)
         for error in scan_errors:

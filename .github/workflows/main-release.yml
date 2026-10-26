@@ -1,7 +1,9 @@
-name: Main branch security scan
+name: Main branch security scan and smoke deployment
 
 on:
   push:
+    branches: [main, master]
+  pull_request:
     branches: [main, master]
   workflow_dispatch:
 
@@ -80,6 +82,74 @@ jobs:
       - name: Enforce g2 IaC, image, and secret gate
         run: conftest test Code/DevSecOps/reports/summary.json --policy Code/DevSecOps/policy/g2 --policy Code/DevSecOps/rules/conftest --data Code/DevSecOps/policy/exceptions.json
 
+      - name: Deploy validated image to an ephemeral runner
+        env:
+          IMAGE: ${{ env.LOCAL_IMAGE }}
+        run: |
+          set -uo pipefail
+          deploy_dir=Code/DevSecOps/tests/results/deploy
+          mkdir -p "$deploy_dir"
+          report="$deploy_dir/deployment.json"
+          container="devsecops-${GITHUB_RUN_ID}"
+          started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          started_epoch=$(date +%s)
+          image_digest=$(docker image inspect --format='{{.Id}}' "$IMAGE")
+          status=failed
+          response=
+
+          if docker run --detach --rm --name "$container" \
+            --publish 127.0.0.1:5000:5000 "$IMAGE"; then
+            for attempt in $(seq 1 20); do
+              if response=$(curl --connect-timeout 2 --max-time 3 --fail --silent \
+                http://127.0.0.1:5000/health); then
+                status=passed
+                break
+              fi
+              sleep 2
+            done
+          fi
+
+          docker logs "$container" > "$deploy_dir/container.log" 2>&1 || true
+          docker stop "$container" >/dev/null 2>&1 || true
+          finished_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          duration_s=$(( $(date +%s) - started_epoch ))
+
+          HEALTH_RESPONSE="$response" python - "$report" "$IMAGE" "$image_digest" \
+            "$GITHUB_SHA" "$GITHUB_RUN_ID" "$status" "$started_at" \
+            "$finished_at" "$duration_s" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          (report, image, digest, commit, run_id, status,
+           started, finished, duration) = sys.argv[1:]
+          raw_health = os.environ.get("HEALTH_RESPONSE", "")
+          try:
+              health = json.loads(raw_health) if raw_health else None
+          except json.JSONDecodeError:
+              health = {"raw": raw_health}
+          evidence = {
+              "deployment_scope": "ephemeral local container on GitHub-hosted runner",
+              "external_cloud": False,
+              "image": image,
+              "image_digest": digest,
+              "commit_sha": commit,
+              "run_id": run_id,
+              "status": status,
+              "health_endpoint": "http://127.0.0.1:5000/health",
+              "health_response": health,
+              "started_at_utc": started,
+              "finished_at_utc": finished,
+              "duration_s": int(duration),
+              "container_cleanup": "attempted",
+          }
+          Path(report).write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
+          print(json.dumps(evidence, indent=2))
+          PY
+
+          test "$status" = passed
+
       - name: Upload security scan evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -88,5 +158,6 @@ jobs:
           path: |
             Code/DevSecOps/tests/results/raw/
             Code/DevSecOps/reports/
+            Code/DevSecOps/tests/results/deploy/
           if-no-files-found: warn
           retention-days: 90

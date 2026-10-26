@@ -111,7 +111,7 @@ measure_sequential() {
 measure_parallel() {
   REPORT_DIR="$1"
   export REPORT_DIR
-  parallel --jobs 4 run_scanner ::: semgrep gitleaks trivy-fs checkov
+  parallel --will-cite --jobs 4 run_scanner ::: semgrep gitleaks trivy-fs checkov
 }
 
 STAMP="$(date -u +%Y%m%dT%H%M%S%N)"
