@@ -1,8 +1,7 @@
 diff --git a/Code/DevSecOps/lab/docker/Dockerfile b/Code/DevSecOps/lab/docker/Dockerfile
 --- a/Code/DevSecOps/lab/docker/Dockerfile
 +++ b/Code/DevSecOps/lab/docker/Dockerfile
-@@ -1,13 +1,20 @@
--# Compatibility copy of Dockerfile.vuln for the existing lab helper scripts.
+@@ -1,12 +1,21 @@
 -FROM python:3.12-slim
 +FROM python:3.12-alpine AS builder
 +WORKDIR /build
@@ -14,85 +13,18 @@ diff --git a/Code/DevSecOps/lab/docker/Dockerfile b/Code/DevSecOps/lab/docker/Do
  WORKDIR /app
 -USER root
 -RUN apt-get update && apt-get install -y curl wget git vim
--COPY src/app/requirements-fixed.txt ./requirements.txt
++RUN apk upgrade --no-cache
++COPY --from=builder /wheels /wheels
+ COPY src/app/requirements-fixed.txt ./requirements.txt
 -RUN pip install --no-cache-dir -r requirements.txt
 -RUN pip install --no-cache-dir requests==2.19.0
 -ADD . /app
 -# SEEDED-DOCKER-03: fake marker file is copied into the image layer.
 -COPY lab/docker/dummy-secret.txt /app/dummy-secret.txt
-+RUN apk upgrade --no-cache
-+COPY --from=builder /wheels /wheels
-+COPY src/app/requirements-fixed.txt ./requirements.txt
 +RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.txt \
 +    && rm -rf /wheels \
 +    && addgroup -S -g 10001 app \
 +    && adduser -S -u 10001 -G app -h /app app
-+COPY --chown=10001:10001 src/app/app.py ./app.py
- EXPOSE 5000
--CMD ["python", "src/app/app.py"]
-+USER 10001:10001
-+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-+  CMD python -c "from urllib.request import urlopen; urlopen('http://127.0.0.1:5000/health', timeout=2)"
-+CMD ["python", "app.py"]
-+FROM python:3.12-slim AS builder
-+WORKDIR /build
-+COPY src/app/requirements-fixed.txt ./requirements.txt
-+RUN pip wheel --no-cache-dir --wheel-dir=/wheels -r requirements.txt
-+
-+FROM python:3.12-slim AS runtime
-+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
- WORKDIR /app
--USER root
--RUN apt-get update && apt-get install -y curl wget git vim
--COPY src/app/requirements.txt ./requirements.txt
--RUN pip install --no-cache-dir -r requirements.txt
--ADD . /app
--# SEEDED-DOCKER-03: fake marker file is copied into the image layer.
--COPY lab/docker/dummy-secret.txt /app/dummy-secret.txt
-+COPY --from=builder /wheels /wheels
-+COPY src/app/requirements-fixed.txt ./requirements.txt
-+RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.txt \
-+    && rm -rf /wheels \
-+    && groupadd --system --gid 10001 app \
-+    && useradd --system --uid 10001 --gid 10001 --home-dir /app app
-+COPY --chown=10001:10001 src/app/app.py ./app.py
- EXPOSE 5000
--CMD ["python", "src/app/app.py"]
-+USER 10001:10001
-+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-+  CMD python -c "from urllib.request import urlopen; urlopen('http://127.0.0.1:5000/health', timeout=2)"
-+CMD ["python", "app.py"]
-diff --git a/Code/DevSecOps/lab/docker/Dockerfile.vuln b/Code/DevSecOps/lab/docker/Dockerfile.vuln
---- a/Code/DevSecOps/lab/docker/Dockerfile.vuln
-+++ b/Code/DevSecOps/lab/docker/Dockerfile.vuln
-@@ -1,16 +1,20 @@
--# Intentionally weak build fixture for isolated scanner demonstrations.
--FROM python:3.6-slim
-+FROM python:3.12-slim AS builder
-+WORKDIR /build
-+COPY src/app/requirements-fixed.txt ./requirements.txt
-+RUN pip wheel --no-cache-dir --wheel-dir=/wheels -r requirements.txt
-+
-+FROM python:3.12-slim AS runtime
-+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
- WORKDIR /app
--# SEEDED-DOCKER-01: EOL base image.
--# SEEDED-DOCKER-02: image process runs as root.
--USER root
--# SEEDED-DOCKER-04: installs tools without --no-install-recommends.
--RUN apt-get update && apt-get install -y curl wget git vim
--COPY src/app/requirements.txt ./requirements.txt
--RUN pip install --no-cache-dir -r requirements.txt
--# SEEDED-DOCKER-05: ADD sends the entire build context into the image.
--ADD . /app
--# SEEDED-DOCKER-03: fake marker file is copied into the image layer.
--COPY lab/docker/dummy-secret.txt /app/dummy-secret.txt
-+COPY --from=builder /wheels /wheels
-+COPY src/app/requirements-fixed.txt ./requirements.txt
-+RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.txt \
-+    && rm -rf /wheels \
-+    && groupadd --system --gid 10001 app \
-+    && useradd --system --uid 10001 --gid 10001 --home-dir /app app
 +COPY --chown=10001:10001 src/app/app.py ./app.py
  EXPOSE 5000
 -CMD ["python", "src/app/app.py"]

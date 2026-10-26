@@ -8,15 +8,15 @@ Ma trận seed, scanner dự kiến, cách khắc phục và kết quả mong đ
 
 Checkout hiện tại đã có patch remediation. `tools/test/measure_pipeline.py --baseline` sao chép repository vào thư mục tạm và dùng `git apply --reverse` trên bốn patch để khôi phục source, secret fixture, Dockerfile và Terraform baseline. Workspace ban đầu không bị thay đổi. `--after-fix` quét checkout đang mở.
 
-Trên GitHub Actions, chạy thủ công workflow `Ground truth before-after experiment` một lần với phase `baseline` và một lần với `after-fix`. Mỗi lần chạy tối thiểu ba lần quét. Artifact giữ raw reports, summary chuẩn hóa, detection rate, thời gian, Trivy image report, SBOM CycloneDX và kết quả gate. Baseline phải bị g1 chặn; after-fix phải vượt qua g1/g2. Không có scanner/report thành công thì lượt đo được đánh dấu invalid.
+Khi đẩy nhánh `codex/**`, mở pull request hoặc dispatch thủ công workflow `Ground truth before-after experiment`, nó chạy đồng thời `baseline` và `after-fix`, năm lượt mỗi phase. Artifact giữ raw reports, summary chuẩn hóa, detection rate, thời gian, phiên bản công cụ, benchmark tuần tự/song song, Trivy image report, SBOM CycloneDX, gate log, smoke deployment cục bộ và bảng triage. Baseline phải bị g1/g2 chặn; after-fix phải vượt qua g1/g2 và health check của container. Không có scanner/report thành công thì lượt đo được đánh dấu invalid.
 
 Có thể gọi script từ repository root sau khi cài đủ scanner:
 
 ```bash
-python Code/DevSecOps/tools/test/measure_pipeline.py --baseline --runs 3 --include-image
-python Code/DevSecOps/tools/test/measure_pipeline.py --after-fix --runs 3 --include-image
+python Code/DevSecOps/tools/test/measure_pipeline.py --baseline --runs 5 --include-image
+python Code/DevSecOps/tools/test/measure_pipeline.py --after-fix --runs 5 --include-image
 ```
 
 ## Cách hiểu metric
 
-`verify_ground_truth.py` ghép finding với seed theo tool, category, rule/CVE, package/version và đường dẫn. Với baseline, `detection_rate.csv` ghi TP/FP/FN, precision, recall và F1. Với after-fix, file ghi seed còn sót và unmatched findings; seed đã loại bỏ không bị tính thành false negative. Unmatched finding chưa được xác nhận là false positive bởi chuyên gia. Một CVE image requests cố định được chấm; các CVE image khác vẫn cần triage. Không gọi unmatched rate là “false positive rate” nếu chưa triage thủ công.
+`verify_ground_truth.py` ghép finding với seed theo tool, category, rule/CVE, package/version và đường dẫn. Với baseline, `detection_rate.csv` ghi TP, FN, số finding chưa khớp, seed precision proxy, recall và F1 proxy. Với after-fix, file ghi seed còn sót và unmatched findings; seed đã loại bỏ không bị tính thành false negative. Báo cáo triage gộp các quan sát lặp lại qua năm lượt nhưng giữ số lần thấy và đường dẫn report. Unmatched finding chưa được xác nhận là false positive bởi chuyên gia. Một CVE image requests cố định được chấm; các CVE image khác vẫn cần triage. Không gọi unmatched rate là “false positive rate” nếu chưa triage thủ công.
