@@ -97,6 +97,17 @@ class GroundTruthTests(unittest.TestCase):
         self.assertEqual(score["fp"], 1)  # Stored as unmatched pending human review.
         self.assertEqual(score["unmatched_findings"][0]["rule_id"], "UNSEEDED")
 
+    def test_image_finding_key_ignores_per_run_image_tag(self) -> None:
+        first = {
+            "tool": "trivy-image", "category": "image", "rule_id": "CVE-1",
+            "file": "devsecops-seeded-lab:123-baseline-1", "package": "openssl",
+        }
+        second = {**first, "file": "devsecops-seeded-lab:123-baseline-5"}
+        self.assertEqual(
+            verify_ground_truth.stable_finding_key(first),
+            verify_ground_truth.stable_finding_key(second),
+        )
+
     def test_measurement_writes_pending_triage_rows(self) -> None:
         with tempfile.TemporaryDirectory(dir=WORKSPACE_ROOT) as temporary:
             root = Path(temporary)

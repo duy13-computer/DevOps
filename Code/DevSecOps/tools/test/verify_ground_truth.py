@@ -10,6 +10,7 @@ import json
 import os
 import re
 import sys
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -104,6 +105,22 @@ def matches(seed: dict[str, Any], finding: dict[str, Any]) -> bool:
     return True
 
 
+def stable_finding_key(finding: dict[str, Any]) -> str:
+    supplied = finding.get("fingerprint") or finding.get("finding_id")
+    if supplied:
+        return str(supplied)
+    stable = dict(finding)
+    if stable.get("tool") == "trivy-image":
+        stable["file"] = re.sub(
+            r":\d+-(?:baseline|after-fix)-\d+$",
+            ":<phase>",
+            str(stable.get("file", "")),
+        )
+    return hashlib.sha256(
+        json.dumps(stable, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()[:20]
+
+
 def score_run(findings: list[dict[str, Any]], seeds: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     measured = [seed for seed in seeds if seed.get("measured", True)]
     tools = {str(seed["tool"]) for seed in measured}
@@ -170,13 +187,7 @@ def main() -> int:
         report_commit = str(data.get("commit_sha", ""))
         for tool, score in scores.items():
             for finding in score["unmatched_findings"]:
-                finding_key = str(
-                    finding.get("fingerprint")
-                    or finding.get("finding_id")
-                    or hashlib.sha256(
-                        json.dumps(finding, sort_keys=True, ensure_ascii=False).encode("utf-8")
-                    ).hexdigest()[:20]
-                )
+                finding_key = stable_finding_key(finding)
                 triage_rows.append({
                     "phase": phase_name,
                     "run_id": report_run_id or args.run_id,
@@ -280,6 +291,9 @@ def main() -> int:
         if row["report"] not in existing_row["report_paths"].split(";"):
             existing_row["report_paths"] += ";" + row["report"]
     unique_triage_rows = list(triage_by_identity.values())
+    pending_severity_counts = Counter(
+        f"{row['tool']}/{row['severity']}" for row in unique_triage_rows
+    )
     with triage_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=TRIAGE_FIELDS)
         writer.writeheader()
@@ -288,6 +302,11 @@ def main() -> int:
         f"Wrote {len(unique_triage_rows)} unique unmatched finding(s) "
         f"from {len(triage_rows)} observations for manual triage to {triage_path}"
     )
+    if pending_severity_counts:
+        counts = ", ".join(
+            f"{key}={count}" for key, count in sorted(pending_severity_counts.items())
+        )
+        print(f"Unique unmatched severity counts pending review: {counts}")
     if scan_errors:
         print("Input reports include scanner errors; metrics may be incomplete:", file=sys.stderr)
         for error in scan_errors:

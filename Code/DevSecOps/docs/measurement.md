@@ -22,7 +22,7 @@ Chạy tối thiểu ba lượt, trên cùng loại máy, phiên bản scanner, 
 
 ## Tỷ lệ phát hiện và false positive
 
-`verify_ground_truth.py` so finding với seed `measured: true` và xuất bảng `tests/results/triage/unmatched_findings_<phase>_<run-id>.csv` cho finding chưa khớp. Các cột `fp`, seed precision và F1 trong detection CSV là số liệu tương đối với bộ seed, không phải tỷ lệ false positive đã được xác nhận. Unmatched finding **không** tự động là false positive. CSV triage gộp bản lặp, ghi `observed_count` và các report nguồn; người đánh giá cần điền classification, reviewer, thời điểm và lý do trước khi báo cáo FPR đã xác nhận. Với after-fix, CSV ghi số seed còn sót; seed đã xóa không bị tính thành false negative.
+`verify_ground_truth.py` so finding với seed `measured: true` và xuất bảng `tests/results/triage/unmatched_findings_<phase>_<run-id>.csv` cho finding chưa khớp. Các cột `fp`, seed precision và F1 trong detection CSV là số liệu tương đối với bộ seed, không phải tỷ lệ false positive đã được xác nhận. Unmatched finding **không** tự động là false positive. CSV triage gộp bản lặp, chuẩn hóa tag image theo phase, ghi `observed_count` và các report nguồn; người đánh giá cần điền classification, reviewer, thời điểm và lý do trước khi báo cáo FPR đã xác nhận. Với after-fix, CSV ghi số seed còn sót; seed đã xóa không bị tính thành false negative.
 
 Trivy image report được giữ và seed `requests==2.19.0` đo một CVE image cố định. Các CVE khác của base image vẫn được giữ để triage; unmatched finding chỉ là FP tương đối với seed, không phải false positive đã xác nhận.
 
