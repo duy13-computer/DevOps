@@ -1,0 +1,11 @@
+phase,metric_kind,run_id,commit_sha,n_runs,tool,tp,fp,fn,precision,recall,f1,detected_seed_ids,missed_seed_ids,remaining_seed_ids,residual_seed_count,unmatched_findings
+baseline,detection,local-lab-20261027,2d1449117edef1e7c69c4ea620fccc83e39de4b4,3,checkov,18,18,0,0.5,1.0,0.6666666666666666,SEEDED-IAC-01;SEEDED-IAC-02;SEEDED-IAC-03;SEEDED-IAC-04;SEEDED-IAC-05;SEEDED-IAC-06,,,N/A,18
+baseline,detection,local-lab-20261027,2d1449117edef1e7c69c4ea620fccc83e39de4b4,3,gitleaks,12,0,0,1.0,1.0,1.0,SEEDED-SECRET-01;SEEDED-SECRET-02;SEEDED-SECRET-03;SEEDED-SECRET-04,,,N/A,0
+baseline,detection,local-lab-20261027,2d1449117edef1e7c69c4ea620fccc83e39de4b4,3,semgrep,9,0,0,1.0,1.0,1.0,SEEDED-SAST-01;SEEDED-SAST-02;SEEDED-SAST-03,,,N/A,0
+baseline,detection,local-lab-20261027,2d1449117edef1e7c69c4ea620fccc83e39de4b4,3,trivy-fs,24,102,0,0.19047619047619047,1.0,0.32,SEEDED-DOCKER-02;SEEDED-DOCKER-04;SEEDED-DOCKER-05;SEEDED-SCA-01;SEEDED-SCA-02;SEEDED-SCA-03;SEEDED-SCA-04;SEEDED-SCA-05,,,N/A,102
+baseline,detection,local-lab-20261027,2d1449117edef1e7c69c4ea620fccc83e39de4b4,3,trivy-image,0,0,3,0.0,0.0,0.0,,SEEDED-DOCKER-01,,N/A,0
+after-fix,remediation,local-lab-20261027,2d1449117edef1e7c69c4ea620fccc83e39de4b4,3,checkov,N/A,N/A,N/A,N/A,N/A,N/A,,,,0,0
+after-fix,remediation,local-lab-20261027,2d1449117edef1e7c69c4ea620fccc83e39de4b4,3,gitleaks,N/A,N/A,N/A,N/A,N/A,N/A,,,,0,0
+after-fix,remediation,local-lab-20261027,2d1449117edef1e7c69c4ea620fccc83e39de4b4,3,semgrep,N/A,N/A,N/A,N/A,N/A,N/A,,,,0,0
+after-fix,remediation,local-lab-20261027,2d1449117edef1e7c69c4ea620fccc83e39de4b4,3,trivy-fs,N/A,N/A,N/A,N/A,N/A,N/A,,,,0,3
+after-fix,remediation,local-lab-20261027,2d1449117edef1e7c69c4ea620fccc83e39de4b4,3,trivy-image,N/A,N/A,N/A,N/A,N/A,N/A,,,,0,0
